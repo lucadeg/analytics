@@ -1,15 +1,9 @@
+
 name: "Terraform E2E Tests"
 
 on:
-  push:
-    branches:
-      - master
-    paths:
-      - 'test/e2e/**.tf'
-  pull_request:
-    paths:
-      - 'test/e2e/**.tf'
-
+  workflow_dispatch:
+  # Automatic triggers removed; invoke through FounderOS/Admin Gate.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false

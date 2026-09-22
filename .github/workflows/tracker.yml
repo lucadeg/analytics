@@ -1,11 +1,9 @@
+
 name: Tracker CI
 
 on:
   workflow_dispatch:
-  pull_request:
-    paths:
-      - "tracker/**"
-
+  # Automatic triggers removed; invoke through FounderOS/Admin Gate.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true

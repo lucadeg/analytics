@@ -1,12 +1,9 @@
+
 name: "Tracker script update"
 
 on:
-  pull_request:
-    paths:
-      - 'tracker/src/**'
-      - 'tracker/package.json'
-      - 'tracker/package-lock.json'
-
+  workflow_dispatch:
+  # Automatic triggers removed; invoke through FounderOS/Admin Gate.
 jobs:
   tracker-script-update:
     runs-on: blacksmith-4vcpu-ubuntu-2404
