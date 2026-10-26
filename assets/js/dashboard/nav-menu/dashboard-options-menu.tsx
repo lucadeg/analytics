@@ -1,11 +1,7 @@
-import React, { useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { Popover, Transition } from '@headlessui/react'
-import {
-  EllipsisVerticalIcon,
-  ArrowDownTrayIcon
-} from '@heroicons/react/24/outline'
+import { EllipsisVerticalIcon } from '@heroicons/react/24/outline'
 import { Toggle } from '../components/toggle'
-import { Spinner } from '../components/icons'
 import classNames from 'classnames'
 import { popover, BlurMenuButtonOnEscape } from '../components/popover'
 import { useGraphIntervalContext } from '../stats/graph/graph-interval-context'
@@ -14,56 +10,12 @@ import { useDashboardStateContext } from '../dashboard-state-context'
 import { DashboardPeriod } from '../dashboard-time-periods'
 import { IntervalPicker } from '../stats/graph/interval-picker'
 import { AppNavigationLink } from '../navigation/use-app-navigate'
-import { useSiteContext } from '../site-context'
-import * as api from '../api'
 import { Notice } from '../components/notice'
 import { isModifierPressed, isTyping, Keybind } from '../keybinding'
 import { useMatch } from 'react-router-dom'
 import { rootRoute } from '../router'
-
-function ExportItem({ selectedInterval }: { selectedInterval: string }) {
-  const site = useSiteContext()
-  const { dashboardState } = useDashboardStateContext()
-  const [exporting, setExporting] = useState(false)
-
-  function pollExportReady() {
-    if (document.cookie.includes('exporting')) {
-      setTimeout(pollExportReady, 1000)
-    } else {
-      setExporting(false)
-    }
-  }
-
-  function startExport() {
-    setExporting(true)
-    document.cookie = 'exporting='
-    pollExportReady()
-  }
-
-  const params = api.dashboardStateToSearchParams(dashboardState, [
-    { interval: selectedInterval, comparison: undefined }
-  ])
-  const endpoint = `/${encodeURIComponent(site.domain)}/export?${params}`
-
-  return (
-    <a
-      href={endpoint}
-      download
-      onClick={startExport}
-      className={classNames(
-        popover.items.classNames.navigationLink,
-        popover.items.classNames.hoverLink
-      )}
-    >
-      <span className="text-sm">Export stats</span>
-      {exporting ? (
-        <Spinner className="animate-spin size-4 text-indigo-500" />
-      ) : (
-        <ArrowDownTrayIcon className="size-4 stroke-2" />
-      )}
-    </a>
-  )
-}
+import { CsvExport, ExportStatus } from '../stats/csv-export/csv-export'
+import { MenuSeparator } from './nav-menu-components'
 
 function ImportedSwitchItem({ disabled }: { disabled: boolean }) {
   const { dashboardState } = useDashboardStateContext()
@@ -90,11 +42,25 @@ function ImportedSwitchItem({ disabled }: { disabled: boolean }) {
   )
 }
 
-function DashboardOptionsMenuItems() {
+function DashboardOptionsMenuItems({
+  closeDropdown
+}: {
+  closeDropdown: () => void
+}) {
+  const { dashboardState } = useDashboardStateContext()
   const { selectedInterval, onIntervalClick, availableIntervals } =
     useGraphIntervalContext()
   const imports = useImportsIncludedContext()
   const buttonRef = useRef<HTMLButtonElement>(null)
+  const [exportStatus, setExportStatus] = useState<ExportStatus>(
+    ExportStatus.idle
+  )
+
+  useEffect(() => {
+    setExportStatus((prev) =>
+      prev === ExportStatus.error ? ExportStatus.idle : prev
+    )
+  }, [dashboardState])
 
   const showIntervalSection = availableIntervals.length > 1
 
@@ -116,6 +82,7 @@ function DashboardOptionsMenuItems() {
           shouldIgnoreWhen={[isModifierPressed, isTyping]}
         />
       )}
+      <Popover.Overlay className={popover.backdrop.classNames.transparent} />
       <BlurMenuButtonOnEscape targetRef={buttonRef} />
       <Popover.Button
         ref={buttonRef}
@@ -123,10 +90,11 @@ function DashboardOptionsMenuItems() {
         className={classNames(
           popover.toggleButton.classNames.rounded,
           popover.toggleButton.classNames.ghost,
+          popover.toggleButton.classNames.aboveBackdrop,
           'justify-center'
         )}
       >
-        <EllipsisVerticalIcon className="size-4" />
+        <EllipsisVerticalIcon className="-mx-px size-4.5" />
       </Popover.Button>
       <Transition
         as="div"
@@ -134,19 +102,25 @@ function DashboardOptionsMenuItems() {
         className={classNames(popover.transition.classNames.right, 'mt-2')}
       >
         <Popover.Panel
-          className={classNames(
-            popover.panel.classNames.roundedSheet,
-            'min-w-72'
-          )}
+          className={classNames(popover.panel.classNames.roundedSheet, 'w-56')}
         >
           {showIntervalSection && (
-            <IntervalPicker
-              selectedInterval={selectedInterval}
-              onIntervalClick={onIntervalClick}
-              options={availableIntervals}
-            />
+            <>
+              <IntervalPicker
+                selectedInterval={selectedInterval}
+                onIntervalClick={(interval) => {
+                  onIntervalClick(interval)
+                  closeDropdown()
+                }}
+                options={availableIntervals}
+              />
+              <MenuSeparator />
+            </>
           )}
-          <ExportItem selectedInterval={selectedInterval} />
+          <CsvExport
+            exportStatus={exportStatus}
+            setExportStatus={setExportStatus}
+          />
           {imports.status === 'visible' && (
             <>
               <ImportedSwitchItem disabled={imports.disabled} />
@@ -184,20 +158,21 @@ export function DashboardOptionsMenu() {
     return (
       <button
         disabled
+        data-testid="dashboard-options-menu"
         className={classNames(
           popover.toggleButton.classNames.rounded,
           popover.toggleButton.classNames.ghost,
           'justify-center'
         )}
       >
-        <EllipsisVerticalIcon className="size-4" />
+        <EllipsisVerticalIcon className="-mx-px size-4.5" />
       </button>
     )
   }
 
   return (
     <Popover className="md:relative">
-      {() => <DashboardOptionsMenuItems />}
+      {({ close }) => <DashboardOptionsMenuItems closeDropdown={close} />}
     </Popover>
   )
 }

@@ -75,11 +75,10 @@ defmodule Plausible.MixProject do
     [
       {:bamboo, "~> 2.3", override: true},
       {:bamboo_postmark, git: "https://github.com/plausible/bamboo_postmark.git", branch: "main"},
-      {:bamboo_smtp, "~> 4.1"},
       {:bamboo_mua, "~> 0.2.0"},
       {:bcrypt_elixir, "~> 3.3"},
       {:bypass, "~> 2.1", only: [:dev, :test, :ce_test, :e2e_test]},
-      {:ecto_ch, "~> 0.8.6"},
+      {:ecto_ch, "~> 0.11"},
       {:cloak, "~> 1.1"},
       {:cloak_ecto, "~> 1.2"},
       {:combination, "~> 0.0.3"},
@@ -87,45 +86,47 @@ defmodule Plausible.MixProject do
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:double, "~> 0.8.0", only: [:dev, :test, :ce_test, :ce_dev, :e2e_test]},
-      {:ecto, "~> 3.13.5"},
-      {:ecto_sql, "~> 3.13.2"},
+      {:ecto, "~> 3.14"},
+      {:ecto_sql, "~> 3.14"},
       {:envy, "~> 1.1.1"},
       {:eqrcode, "~> 0.2.1"},
       {:ex_machina, "~> 2.3", only: [:dev, :test, :ce_dev, :ce_test, :e2e_test]},
       {:excoveralls, "~> 0.10", only: :test},
-      {:finch, "~> 0.20.0"},
+      {:finch, "~> 0.23"},
       {:lazy_html, "~> 0.1.8"},
       {:fun_with_flags, "~> 1.13.0"},
       {:fun_with_flags_ui, "~> 1.0"},
       {:locus, "~> 2.3"},
       {:gen_cycle, "~> 1.0.4"},
-      {:hackney, "~> 1.8"},
+      {:hackney, "~> 4.8", override: true},
+      {:idna, "~> 7.1", override: true},
+      {:httpoison, "~> 3.0", override: true},
       {:jason, "~> 1.3"},
       {:location, git: "https://github.com/plausible/location.git"},
       {:mox, "~> 1.0", only: [:test, :ce_test, :e2e_test]},
       {:nanoid, "~> 2.1.0"},
+      {:nimble_csv, "~> 1.3"},
       {:nimble_totp, "~> 1.0"},
-      {:oban, "~> 2.20.1"},
+      {:oban, "~> 2.24.1"},
       {:observer_cli, "~> 1.7"},
       {:opentelemetry, "~> 1.7"},
       {:opentelemetry_api, "~> 1.5"},
       {:opentelemetry_api_experimental,
        git: "https://github.com/open-telemetry/opentelemetry-erlang.git",
-       ref: "b241ebf4feb7558738d009583bae8602b3c49fd0",
+       ref: "e67f5e30a4cc96411800c48ba960153a9223a71d",
        sparse: "apps/opentelemetry_api_experimental",
        override: true},
       {:opentelemetry_ecto, "~> 1.2"},
       {:opentelemetry_exporter, "~> 1.10"},
       {:opentelemetry_experimental,
        git: "https://github.com/open-telemetry/opentelemetry-erlang.git",
-       ref: "b241ebf4feb7558738d009583bae8602b3c49fd0",
+       ref: "e67f5e30a4cc96411800c48ba960153a9223a71d",
        sparse: "apps/opentelemetry_experimental",
        override: true},
       {:opentelemetry_phoenix, "~> 2.0.1"},
-      {:opentelemetry_oban, "~> 1.1"},
+      {:opentelemetry_oban, "~> 1.2"},
       {:opentelemetry_cowboy, "~> 1.0"},
-      # # https://github.com/open-telemetry/opentelemetry-erlang-contrib/issues/428
-      {:opentelemetry_semantic_conventions, "~> 1.27", override: true},
+      {:opentelemetry_semantic_conventions, "~> 1.27"},
       {:phoenix, "~> 1.8.2"},
       {:phoenix_view, "~> 2.0"},
       {:phoenix_ecto, "~> 4.5"},
@@ -135,24 +136,24 @@ defmodule Plausible.MixProject do
       {:phoenix_live_view, "~> 1.1.17"},
       {:php_serializer, "~> 2.0"},
       {:plug, "~> 1.13", override: true},
-      {:prima, "~> 0.2.6"},
+      {:prima, "~> 0.3.0"},
       {:plug_cowboy, "~> 2.3"},
       {:polymorphic_embed, "~> 5.0"},
-      {:postgrex, "~> 0.21.1"},
-      {:prom_ex, "~> 1.8"},
-      {:peep, "~> 3.0"},
+      {:postgrex, "~> 0.22.2"},
+      {:prom_ex, "~> 1.12"},
+      {:peep, "~> 4.2"},
       {:public_suffix, git: "https://github.com/axelson/publicsuffix-elixir"},
       {:recon, "~> 2.5"},
       {:ref_inspector, "~> 2.0"},
       {:referrer_blocklist, git: "https://github.com/plausible/referrer-blocklist.git"},
-      {:sentry, "~> 11.0.4"},
+      {:sentry, "~> 13.5"},
       {:simple_saml, "~> 1.2"},
       {:xml_builder, "~> 2.1"},
       {:siphash, "~> 3.2"},
       {:timex, "~> 3.7"},
       {:ua_inspector, "~> 3.12"},
       {:ex_doc, "~> 0.28", only: :dev, runtime: false},
-      {:ex_money, "~> 5.12"},
+      {:ex_money, "~> 5.24.2"},
       {:mjml_eex, "~> 0.12.0"},
       {:mjml, "~> 4.0.0"},
       {:heroicons, "~> 0.5.0"},
@@ -170,7 +171,7 @@ defmodule Plausible.MixProject do
       {:zstream, "~> 0.6.4"},
       {:con_cache,
        git: "https://github.com/aerosol/con_cache", branch: "ensure-dirty-ops-emit-telemetry"},
-      {:req, "~> 0.5.16"},
+      {:req, "~> 0.7.4"},
       {:opentelemetry_req, "~> 1.0"},
       {:happy_tcp, github: "ruslandoga/happy_tcp", only: [:ce, :ce_dev, :ce_test, :e2e_test]},
       {:ex_json_schema, "~> 0.11.1"},
@@ -179,7 +180,8 @@ defmodule Plausible.MixProject do
       {:site_encrypt, github: "sasa1977/site_encrypt", only: [:ce, :ce_dev, :ce_test, :e2e_test]},
       {:phoenix_html_helpers, "~> 1.0"},
       {:libcluster, "~> 3.5"},
-      {:decimal, "~> 3.0", override: true}
+      {:decimal, "~> 3.0", override: true},
+      {:logger_backends, "~> 1.0.0"}
     ]
   end
 
@@ -197,7 +199,9 @@ defmodule Plausible.MixProject do
       # mix test.e2e --ui
       # mix test.e2e --debug segments.spec.ts
       "test.e2e": [
+        "tailwind default",
         "esbuild default",
+        "esbuild friendly_captcha",
         "ecto.create --quiet",
         "ecto.migrate",
         "clean_postgres",
@@ -208,11 +212,14 @@ defmodule Plausible.MixProject do
       "assets.typecheck": ["cmd npm --prefix assets run typecheck"],
       "assets.build": [
         "tailwind default",
-        "esbuild default"
+        "esbuild default",
+        "esbuild friendly_captcha"
       ],
       "assets.deploy": [
         "tailwind default --minify",
         "esbuild default --minify",
+        # already minified upstream, so no --minify here
+        "esbuild friendly_captcha",
         "phx.digest"
       ]
     ]
@@ -221,7 +228,7 @@ defmodule Plausible.MixProject do
   defp docs do
     [
       main: "readme",
-      logo: "priv/static/images/ee/favicon-32x32.png",
+      logo: "priv/static/images/ee/favicon.svg",
       extras:
         Path.wildcard("guides/**/*.md") ++
           [

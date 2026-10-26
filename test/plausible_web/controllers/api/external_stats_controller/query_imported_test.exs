@@ -588,6 +588,45 @@ defmodule PlausibleWeb.Api.ExternalStatsController.QueryImportedTest do
   end
 
   describe "imported data" do
+    test "aligns goal filters and breakdowns for alternative paths with imported pages", %{
+      conn: conn,
+      site: site
+    } do
+      insert(:goal, site: site, page_path: "/pricing|/plans")
+      site_import = insert(:site_import, site: site)
+
+      imported_pages =
+        for path <- ["/pricing", "/plans", "/pricing/more", "/legacy/plans", "/pricing|/plans"] do
+          build(:imported_pages, page: path, visitors: 2, pageviews: 2, date: ~D[2021-01-01])
+        end
+
+      populate_stats(site, site_import.id, [
+        build(:pageview, pathname: "/pricing", timestamp: ~N[2021-01-01 00:00:01])
+        | imported_pages
+      ])
+
+      for {dimensions, filters} <- [
+            {["event:goal"], []},
+            {[], [["is", "event:goal", ["Visit /pricing|/plans"]]]}
+          ] do
+        conn =
+          post(conn, "/api/v2/query", %{
+            "site_id" => site.domain,
+            "date_range" => "all",
+            "metrics" => ["visitors"],
+            "dimensions" => dimensions,
+            "filters" => filters,
+            "include" => %{"imports" => true}
+          })
+
+        expected_dimensions = if dimensions == [], do: [], else: ["Visit /pricing|/plans"]
+
+        assert json_response(conn, 200)["results"] == [
+                 %{"dimensions" => expected_dimensions, "metrics" => [5]}
+               ]
+      end
+    end
+
     test "returns screen sizes breakdown when filtering by screen size", %{conn: conn, site: site} do
       site_import = insert(:site_import, site: site)
 
@@ -1148,6 +1187,58 @@ defmodule PlausibleWeb.Api.ExternalStatsController.QueryImportedTest do
         assert json_response(conn, 200)["results"] == [
                  %{"dimensions" => [imports_value], "metrics" => [34]},
                  %{"dimensions" => [stats_value], "metrics" => [2]}
+               ]
+      end
+    end
+
+    test "imported non-empty region IDs that don't have a corresponding name in our locations dictionary have region_name set to the ID itself, empty region IDs are excluded",
+         %{conn: conn, site: site} do
+      site_import = insert(:site_import, site: site)
+
+      populate_stats(site, site_import.id, [
+        # GA4 import: `region` is the name of the `region`
+        build(:imported_locations, country: "US", region: "California", visitors: 10),
+        # Plausible import: `region` is the region ID
+        build(:imported_locations, country: "EE", region: "EE-37", visitors: 5),
+        # Plausible import: `region` is the region ID, but the ID is stale
+        build(:imported_locations, country: "NO", region: "NO-99", visitors: 50),
+        # Plausible / GA4 import when the region is unknown
+        build(:imported_locations, country: "US", region: "", visitors: 99)
+      ])
+
+      for {dimensions, expected_dimension_values} <- [
+            {["visit:region_name", "visit:region"],
+             [
+               NO: ["NO-99", "NO-99"],
+               US: ["California", "California"],
+               EE: ["Harjumaa", "EE-37"]
+             ]},
+            {["visit:region"],
+             [
+               NO: ["NO-99"],
+               US: ["California"],
+               EE: ["EE-37"]
+             ]},
+            {["visit:region_name"],
+             [
+               NO: ["NO-99"],
+               US: ["California"],
+               EE: ["Harjumaa"]
+             ]}
+          ] do
+        conn =
+          post(conn, "/api/v2/query", %{
+            "site_id" => site.domain,
+            "metrics" => ["visitors"],
+            "date_range" => "all",
+            "dimensions" => dimensions,
+            "include" => %{"imports" => true}
+          })
+
+        assert json_response(conn, 200)["results"] == [
+                 %{"dimensions" => expected_dimension_values[:NO], "metrics" => [50]},
+                 %{"dimensions" => expected_dimension_values[:US], "metrics" => [10]},
+                 %{"dimensions" => expected_dimension_values[:EE], "metrics" => [5]}
                ]
       end
     end

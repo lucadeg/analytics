@@ -11,7 +11,6 @@ import {
   StatsReportQueryKey,
   useSearchAndPaginateQueryAPI
 } from '../../hooks/use-query-api'
-import { rootRoute } from '../../router'
 import {
   getStoredOrderBy,
   MetricOrderBy,
@@ -21,17 +20,19 @@ import {
 import { SortDirection } from '../../../types/query-api'
 import { Metric, getBreakdownMetricLabel, isSortable } from '../metrics'
 import { BreakdownTable } from './breakdown-table'
-import { OrderByEntry } from '../../stats-query'
+import { NonTimeDimension } from '../../stats-query'
 import { useSiteContext } from '../../site-context'
-import { DrilldownLink, FilterInfo } from '../../components/drilldown-link'
+import { DrilldownLink } from '../../components/drilldown-link'
 import {
   ColumnConfiguration,
-  ExternalLinkIcon,
   MetricValueTooltipContent,
   SharedBreakdownReportProps,
   formatDateRangeLabel,
   useBodyPortalRef,
-  extractMetricValue
+  extractMetricValue,
+  GetFilterInfo,
+  useColumnsHiddenForAllNull,
+  dimensionOrderBy
 } from '../breakdowns'
 import {
   QueryResultRow,
@@ -51,6 +52,7 @@ import {
   isRealTimeDashboard
 } from '../../util/filters'
 import { SortButton } from '../../components/sort-button'
+import { rootRoute } from '../../router'
 
 type PaginatedData = { pages: QueryApiResponse[] }
 
@@ -58,7 +60,9 @@ type DetailsBreakdownProps = SharedBreakdownReportProps & {
   title: ReactNode
   defaultOrderBy?: MetricOrderBy
   searchEnabled?: boolean
+  searchDimension?: NonTimeDimension
   onDataReady?: (data: PaginatedData) => void
+  DimensionElement: (props: DimensionCellProps) => ReactNode
 }
 
 const getMetricCellWidthClass = (
@@ -85,11 +89,15 @@ export function DetailsBreakdown({
   dimensionLabel,
   dimensions,
   metrics,
+  alwaysOnFilters,
   defaultOrderBy = [] as MetricOrderBy,
-  getFilterInfo,
-  getExternalLinkUrl,
+  DimensionElement,
   searchEnabled = true,
-  onDataReady
+  searchDimension,
+  onDataReady,
+  bundlePercentageWithVisitors = true,
+  hideMetricsIfAllNull,
+  getStatsQuery
 }: DetailsBreakdownProps) {
   const site = useSiteContext()
   const { dashboardState } = useDashboardStateContext()
@@ -113,25 +121,27 @@ export function DetailsBreakdown({
     dimensionLabel
   })
 
-  const statsReportQueryKey: StatsReportQueryKey = useMemo(() => {
-    return [
-      dimensions.join(',') as StatsReportId,
-      {
-        dashboardState,
-        reportParams: {
-          metrics,
-          dimensions,
-          order_by: [
-            ...(orderBy.length ? orderBy : storedOrderBy),
-            ...dimensions.map((dim): OrderByEntry => [dim, 'asc'])
-          ]
-        },
-        search
-      }
-    ]
-  }, [dashboardState, metrics, dimensions, orderBy, storedOrderBy, search])
+  const statsReportQueryKey: StatsReportQueryKey = [
+    dimensions.join(',') as StatsReportId,
+    {
+      dashboardState,
+      reportParams: {
+        metrics,
+        dimensions,
+        order_by: [
+          ...(orderBy.length ? orderBy : storedOrderBy),
+          ...dimensionOrderBy(dimensions)
+        ],
+        alwaysOnFilters
+      },
+      search,
+      searchDimension
+    }
+  ]
 
-  const apiState = useSearchAndPaginateQueryAPI({ site, statsReportQueryKey })
+  const apiState = useSearchAndPaginateQueryAPI(site, statsReportQueryKey, {
+    getStatsQuery
+  })
 
   useEffect(() => {
     const pages = apiState.data?.pages
@@ -157,22 +167,35 @@ export function DetailsBreakdown({
     [dashboardState, dimensions]
   )
 
+  const flattenedRows = useMemo(() => {
+    return apiState.data?.pages.reduce<QueryResultRow[]>(
+      (acc, p) => acc.concat(p.results),
+      []
+    )
+  }, [apiState.data])
+  const columnsHiddenForAllNull = useColumnsHiddenForAllNull(
+    flattenedRows,
+    query,
+    hideMetricsIfAllNull
+  )
+
   const columns: ColumnConfiguration<QueryResultRow>[] | null = useMemo(() => {
     if (!query) return null
 
+    const filterDimension = query.dimensions[0] as NonTimeDimension
+
     const hasPercentage = query.metrics.includes('percentage')
     const isVisitorsWithPercentageCell = (m: Metric) =>
-      hasPercentage && m === 'visitors'
+      bundlePercentageWithVisitors && hasPercentage && m === 'visitors'
 
     return [
       {
         key: 'dimension',
         renderLabel: () => dimensionLabel,
         renderCell: (row, isActive) => (
-          <DimensionCell
+          <DimensionElement
             row={row}
-            getFilterInfo={getFilterInfo}
-            getExternalLinkUrl={getExternalLinkUrl}
+            filterDimension={filterDimension}
             isActive={isActive}
           />
         ),
@@ -180,8 +203,10 @@ export function DetailsBreakdown({
         align: 'left'
       },
       ...query.metrics
-        // Percentage is not its own column — shown inline in the visitors cell
-        .filter((metric) => metric !== 'percentage')
+        .filter((metric) => {
+          if (columnsHiddenForAllNull.has(metric)) return false
+          return !(bundlePercentageWithVisitors && metric === 'percentage')
+        })
         .map(
           (metric): ColumnConfiguration<QueryResultRow> => ({
             key: metric,
@@ -227,14 +252,15 @@ export function DetailsBreakdown({
         )
     ]
   }, [
+    DimensionElement,
     dimensionLabel,
     query,
     meta,
-    getFilterInfo,
-    getExternalLinkUrl,
     orderByDictionary,
     toggleSortByMetric,
-    metricLabelFor
+    metricLabelFor,
+    bundlePercentageWithVisitors,
+    columnsHiddenForAllNull
   ])
 
   const tableData = apiState.data
@@ -248,7 +274,7 @@ export function DetailsBreakdown({
       data={tableData}
       columns={columns}
       onSearch={searchEnabled ? setSearch : undefined}
-      getRowKey={(row) => row.dimensions[0]}
+      getRowKey={(row) => row.dimensions.join(',')}
     />
   )
 }
@@ -467,48 +493,33 @@ function MetricLabel({
   }
 }
 
-function DimensionCell({
-  row,
-  getFilterInfo,
-  getExternalLinkUrl,
-  isActive
-}: {
+export type DimensionCellProps = {
+  filterDimension: NonTimeDimension
   row: QueryResultRow
-  getFilterInfo: (row: QueryResultRow) => FilterInfo | null
-  getExternalLinkUrl?: (row: QueryResultRow) => string | null
   isActive?: boolean
-}) {
-  return (
-    <div className="break-all flex items-center gap-x-1">
-      <DrilldownLink path={rootRoute.path} filterInfo={getFilterInfo(row)}>
-        {row.dimensions[0]}
-      </DrilldownLink>
-      {typeof getExternalLinkUrl === 'function' && (
-        <ExternalLink href={getExternalLinkUrl(row)} isActive={isActive} />
-      )}
-    </div>
-  )
 }
 
-function ExternalLink({
-  href,
-  isActive
+export const DimensionCell = ({
+  text,
+  icon,
+  externalLink,
+  filterDimension,
+  getFilterInfo,
+  row
 }: {
-  href: string | null
-  isActive?: boolean
-}) {
-  return (
-    <div className="w-4 min-w-4 self-stretch flex flex-col justify-center">
-      {href && (
-        <a
-          target="_blank"
-          rel="noreferrer"
-          href={href}
-          className={isActive ? 'block' : 'hidden'}
-        >
-          <ExternalLinkIcon />
-        </a>
-      )}
-    </div>
-  )
-}
+  text: string
+  icon?: ReactNode
+  externalLink?: ReactNode
+  getFilterInfo: GetFilterInfo
+} & DimensionCellProps) => (
+  <div className="break-all flex items-center gap-x-1">
+    <DrilldownLink
+      path={rootRoute.path}
+      filterInfo={getFilterInfo(filterDimension, row)}
+      icon={icon}
+    >
+      {text}
+    </DrilldownLink>
+    {externalLink}
+  </div>
+)

@@ -8,9 +8,11 @@ import { Metric } from '../metrics'
 import { MainGraph, MainGraphContainer, useMainGraphWidth } from './main-graph'
 import { useGraphIntervalContext } from './graph-interval-context'
 import { useSetImportsIncluded } from './imports-included-context'
+import { useGetAnnotations } from '../../annotations/routeless-annotations-modals'
 
 // height of at least one row of top stats
 const DEFAULT_TOP_STATS_LOADING_HEIGHT_PX = 85
+const DEFAULT_GRAPH_METRIC = 'visitors'
 
 export default function VisitorGraph({
   updateImportedDataInView
@@ -21,17 +23,12 @@ export default function VisitorGraph({
   const mainGraphContainer = useRef<HTMLDivElement>(null)
   const { width } = useMainGraphWidth(mainGraphContainer)
   const site = useSiteContext()
+  const getAnnotationsQuery = useGetAnnotations()
 
   const { selectedInterval } = useGraphIntervalContext()
 
-  // Possible future improvement -- currently, if there's no stored metric,
-  // the graph fetch doesn't run until Top Stats are loaded. That's because
-  // Top Stats tell us which metrics are available for the graph. However,
-  // as things stand today, the `visitors` metric is always available and
-  // could become the default selectedMetric, making it possible to fetch
-  // the graph instantly.
-  const [selectedMetric, setSelectedMetric] = useState<Metric | null>(
-    getStoredMetric(site)
+  const [selectedMetric, setSelectedMetric] = useState<Metric>(
+    getStoredMetric(site) || DEFAULT_GRAPH_METRIC
   )
   const onMetricClick = useCallback(
     (metric: Metric) => {
@@ -51,7 +48,8 @@ export default function VisitorGraph({
     isRealtimeSilentUpdate: isMainGraphRealtimeSilentUpdate
   } = useMainGraphQuery(selectedMetric, selectedInterval)
 
-  // update metric to one that exists
+  // Fall back to default graph metric if the stored metric
+  // does not exist in the returned Top Stats
   useEffect(() => {
     if (topStatsApiState.data) {
       const availableMetrics = topStatsApiState.data.query.metrics
@@ -63,7 +61,7 @@ export default function VisitorGraph({
         ) {
           return currentlySelectedMetric
         } else {
-          return availableMetrics[0]
+          return DEFAULT_GRAPH_METRIC
         }
       })
     }
@@ -115,7 +113,7 @@ export default function VisitorGraph({
     !showFullLoader
 
   return (
-    <div className="col-span-full relative w-full bg-white rounded-md shadow-sm dark:bg-gray-900">
+    <div className="relative w-full bg-white rounded-md shadow-sm dark:bg-gray-900">
       <>
         <div
           id="top-stats-container"
@@ -143,7 +141,11 @@ export default function VisitorGraph({
             {!!mainGraphApiState.data && !!width && (
               <>
                 {!showGraphLoader && (
-                  <MainGraph width={width} data={mainGraphApiState.data} />
+                  <MainGraph
+                    width={width}
+                    data={mainGraphApiState.data}
+                    annotations={getAnnotationsQuery.data ?? []}
+                  />
                 )}
                 {showGraphLoader && <Loader />}
               </>
@@ -159,7 +161,10 @@ export default function VisitorGraph({
 
 const Loader = () => {
   return (
-    <div className="absolute inset-0 bg-white rounded-md dark:bg-gray-900 flex items-center justify-center">
+    <div
+      data-testid="loading-spinner"
+      className="absolute inset-0 bg-white rounded-md dark:bg-gray-900 flex items-center justify-center"
+    >
       <div className="loading">
         <div></div>
       </div>

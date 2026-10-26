@@ -137,7 +137,7 @@ defmodule PlausibleWeb.Live.GoalSettings.Form do
         use_custom_props={@use_custom_props}
       />
 
-      <.button type="submit" class="w-full">
+      <.button type="submit" class="w-full mt-6">
         Update goal
       </.button>
     </.form>
@@ -157,7 +157,7 @@ defmodule PlausibleWeb.Live.GoalSettings.Form do
         These events have been sent from your site in the past 6 months but aren't yet configured as goals. Add them instantly or set one up manually.
       </p>
 
-      <div class="flex justify-end gap-3">
+      <div class="flex justify-end gap-3 mt-6">
         <.button
           theme="secondary"
           phx-click="add-manually"
@@ -223,7 +223,7 @@ defmodule PlausibleWeb.Live.GoalSettings.Form do
         use_custom_props={@use_custom_props}
       />
 
-      <.button type="submit" class="w-full">
+      <.button type="submit" class="w-full mt-6">
         Add goal
       </.button>
     </.form>
@@ -286,6 +286,7 @@ defmodule PlausibleWeb.Live.GoalSettings.Form do
         type="text"
         x-data="{ firstFocus: true }"
         x-on:focus="if (firstFocus) { $el.select(); firstFocus = false; }"
+        wrapper_class="mt-6"
       />
 
       <.custom_property_section
@@ -330,14 +331,14 @@ defmodule PlausibleWeb.Live.GoalSettings.Form do
         }
         """
       else
-        """
-        {
-          scrollThreshold: '#{assigns.goal.scroll_threshold}',
-          pagePath: '#{assigns.goal.page_path}',
-          displayName: '#{assigns.goal.display_name}',
-          updateDisplayName() {}
-        }
-        """
+        data =
+          Jason.encode!(%{
+            scrollThreshold: to_string(assigns.goal.scroll_threshold),
+            pagePath: assigns.goal.page_path,
+            displayName: assigns.goal.display_name
+          })
+
+        "{...#{data}, updateDisplayName() {}}"
       end
 
     assigns = assign(assigns, :js, js)
@@ -368,6 +369,7 @@ defmodule PlausibleWeb.Live.GoalSettings.Form do
         step="1"
         x-model="scrollThreshold"
         x-on:change="updateDisplayName"
+        wrapper_class="mt-6"
       />
 
       <.label for={"scroll_page_path_input_#{@suffix}"} class="mt-3">
@@ -399,6 +401,7 @@ defmodule PlausibleWeb.Live.GoalSettings.Form do
         x-model="displayName"
         x-data="{ firstFocus: true }"
         x-on:focus="if (firstFocus) { $el.select(); firstFocus = false; }"
+        wrapper_class="mt-6"
       />
 
       <.custom_property_section
@@ -473,7 +476,7 @@ defmodule PlausibleWeb.Live.GoalSettings.Form do
           </.error>
         </div>
 
-        <div class="mt-2">
+        <div class="mt-6">
           <.input
             label="Display name"
             id="custom_event_display_name_input"
@@ -531,15 +534,10 @@ defmodule PlausibleWeb.Live.GoalSettings.Form do
         <span class="text-sm/6 font-medium text-gray-900 dark:text-gray-100">
           {if @use_custom_props, do: "Custom properties", else: "Add custom property"}
         </span>
-        <.link
+        <.upgrade_pill
           :if={not @has_access_to_props? and not @use_custom_props}
-          href={Routes.billing_path(PlausibleWeb.Endpoint, :choose_plan)}
-          class="inline-block"
-        >
-          <.pill color={:indigo}>
-            Business
-          </.pill>
-        </.link>
+          plan="Business"
+        />
       </div>
       <.tooltip enabled?={not @has_access_to_props?} centered?={true}>
         <:tooltip_content>
@@ -547,7 +545,7 @@ defmodule PlausibleWeb.Live.GoalSettings.Form do
           <PlausibleWeb.Components.Billing.upgrade_call_to_action
             current_user={@current_user}
             current_team={@site_team}
-            link_class="!inline !text-indigo-400 hover:!text-indigo-300"
+            link_class="!inline dark:!text-indigo-400 dark:hover:!text-indigo-300"
           />
         </:tooltip_content>
         <.toggle_switch
@@ -600,7 +598,7 @@ defmodule PlausibleWeb.Live.GoalSettings.Form do
         </label>
       <% end %>
       <div class="mb-2" x-show="active" id={"revenue-input-#{@suffix}"}>
-        <.input :if={not is_nil(@goal)} type="text" field={@f[:currency]} disabled={true} mt?={false} />
+        <.input :if={not is_nil(@goal)} type="text" field={@f[:currency]} disabled={true} />
         <.live_component
           :if={is_nil(@goal)}
           id={"currency_input_#{@suffix}"}
@@ -720,15 +718,7 @@ defmodule PlausibleWeb.Live.GoalSettings.Form do
         <span class="text-sm/6 font-medium text-gray-900 dark:text-gray-100">
           Enable revenue tracking
         </span>
-        <.link
-          :if={not @has_access_to_revenue_goals?}
-          href={Routes.billing_path(PlausibleWeb.Endpoint, :choose_plan)}
-          class="inline-block"
-        >
-          <.pill color={:indigo}>
-            Business
-          </.pill>
-        </.link>
+        <.upgrade_pill :if={not @has_access_to_revenue_goals?} plan="Business" />
       </div>
       <.tooltip enabled?={not @has_access_to_revenue_goals?} centered?={true}>
         <:tooltip_content>
@@ -736,7 +726,7 @@ defmodule PlausibleWeb.Live.GoalSettings.Form do
           <PlausibleWeb.Components.Billing.upgrade_call_to_action
             current_user={@current_user}
             current_team={@site_team}
-            link_class="!inline !text-indigo-400 hover:!text-indigo-300"
+            link_class="!inline dark:!text-indigo-400 dark:hover:!text-indigo-300"
           />
         </:tooltip_content>
         <PlausibleWeb.Components.Generic.toggle_switch

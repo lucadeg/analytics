@@ -457,6 +457,22 @@ defmodule Plausible.GoalsTest do
     assert goal2.display_name == "Homepage"
   end
 
+  test "update/2 cannot move goal to another site by passing site_id param" do
+    site = new_site()
+    victim_site = new_site()
+    {:ok, goal} = Goals.create(site, %{"event_name" => "Purchase"})
+
+    {:ok, _updated} =
+      Goals.update(goal, %{
+        "event_name" => "Purchase",
+        "site_id" => victim_site.id
+      })
+
+    reloaded = Plausible.Repo.reload!(goal)
+    assert reloaded.site_id == site.id
+    assert reloaded.site_id != victim_site.id
+  end
+
   test "update/2 also updates all segments the goal is a part of" do
     user = new_user()
     site = new_site(owner: user)
@@ -502,6 +518,79 @@ defmodule Plausible.GoalsTest do
                ["is", "event:goal", ["SIGNUP"]]
              ]
            }
+  end
+
+  test "update/2 prevents renaming event_name of a special goal" do
+    site = new_site()
+
+    for event_name <- Plausible.Goal.special_goals() do
+      {:ok, goal} = Goals.create(site, %{"event_name" => event_name})
+
+      assert {:error, changeset} =
+               Goals.update(goal, %{"event_name" => "Renamed #{event_name}"})
+
+      assert {"cannot be changed for an automated goal", _} = changeset.errors[:event_name]
+    end
+  end
+
+  test "update/2 prevents renaming display_name of a special goal to a non-canonical value" do
+    site = new_site()
+
+    for event_name <- Plausible.Goal.special_goals() do
+      {:ok, goal} = Goals.create(site, %{"event_name" => event_name})
+
+      assert {:error, changeset} =
+               Goals.update(goal, %{"display_name" => "Renamed #{event_name}"})
+
+      assert {"cannot be changed for an automated goal", _} = changeset.errors[:display_name]
+    end
+  end
+
+  test "update/2 allows restoring display_name of a special goal to its canonical value" do
+    site = new_site()
+    {:ok, goal} = Goals.create(site, %{"event_name" => "File Download"})
+
+    # Simulate a previously broken goal by directly updating the DB
+    Plausible.Repo.update_all(
+      Ecto.Query.where(Plausible.Goal, id: ^goal.id),
+      set: [display_name: "My File Downloads"]
+    )
+
+    broken_goal = Plausible.Repo.reload!(goal)
+    assert broken_goal.display_name == "My File Downloads"
+
+    assert {:ok, fixed} = Goals.update(broken_goal, %{"display_name" => "File Download"})
+    assert fixed.display_name == "File Download"
+  end
+
+  test "update/2 allows updating non-name fields of a special goal" do
+    site = new_site()
+    {:ok, goal} = Goals.create(site, %{"event_name" => "File Download"})
+
+    assert {:ok, updated} =
+             Goals.update(goal, %{
+               "event_name" => "File Download",
+               "display_name" => "File Download",
+               "custom_props" => %{"path" => "/file.jpg"}
+             })
+
+    assert updated.custom_props == %{"path" => "/file.jpg"}
+  end
+
+  test "update/2 allows renaming event_name of a regular goal" do
+    site = new_site()
+    {:ok, goal} = Goals.create(site, %{"event_name" => "Signup"})
+
+    assert {:ok, updated} = Goals.update(goal, %{"event_name" => "Register"})
+    assert updated.event_name == "Register"
+  end
+
+  test "update/2 allows renaming display_name of a regular goal" do
+    site = new_site()
+    {:ok, goal} = Goals.create(site, %{"event_name" => "Signup"})
+
+    assert {:ok, updated} = Goals.update(goal, %{"display_name" => "User Registration"})
+    assert updated.display_name == "User Registration"
   end
 
   on_ee do
@@ -657,7 +746,68 @@ defmodule Plausible.GoalsTest do
       refute Plausible.Funnels.get(site.id, f2.id)
       assert Repo.all(from(fs in Plausible.Funnel.Step, where: fs.funnel_id == ^f2.id)) == []
 
-      assert [^g3, ^g2] = Goals.for_site(site)
+      assert_matches [%{id: ^g3.id}, %{id: ^g2.id}] = Goals.for_site(site)
+    end
+
+    test "funnel reduction accounts for dynamic funnel steps" do
+      site = new_site()
+      {:ok, g1} = Goals.create(site, %{"page_path" => "/1"})
+      {:ok, g2} = Goals.create(site, %{"page_path" => "/2"})
+      {:ok, g3} = Goals.create(site, %{"page_path" => "/3"})
+
+      {:ok, f1} =
+        Plausible.Funnels.create(
+          site,
+          "Funnel 2 steps mixed",
+          [
+            %{"goal_id" => g1.id},
+            %{"page_path" => "/5"}
+          ]
+        )
+
+      {:ok, f2} =
+        Plausible.Funnels.create(
+          site,
+          "Funnel 3 steps mixed",
+          [
+            %{"goal_id" => g1.id},
+            %{"page_path" => "/4"},
+            %{"event_name" => "Some event"}
+          ]
+        )
+
+      :ok = Goals.delete(g1.id, site)
+
+      refute Plausible.Funnels.get(site.id, f1.id)
+      assert Repo.all(from(fs in Plausible.Funnel.Step, where: fs.funnel_id == ^f1.id)) == []
+
+      assert f2 = Plausible.Funnels.get(site.id, f2.id)
+      assert Enum.count(Plausible.Funnel.steps(f2)) == 2
+
+      assert_matches [%{id: ^g3.id}, %{id: ^g2.id}] = Goals.for_site(site)
+    end
+
+    test "deleting special goal (e.g. via tracker script sync) also triggers funnel reduction" do
+      site = new_site()
+      {:ok, g1} = Goals.create(site, %{"page_path" => "/1"})
+      :ok = Goals.create_404(site)
+      [g404] = Repo.all(from g in Plausible.Goal, where: g.event_name == "404")
+
+      {:ok, f1} =
+        Plausible.Funnels.create(
+          site,
+          "Funnel with special goal",
+          [
+            %{"goal_id" => g1.id},
+            %{"goal_id" => g404.id}
+          ]
+        )
+
+      assert Plausible.Funnels.get(site.id, f1.id)
+
+      :ok = Goals.delete_404(site)
+
+      refute Plausible.Funnels.get(site.id, f1.id)
     end
   end
 

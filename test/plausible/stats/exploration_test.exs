@@ -158,6 +158,72 @@ defmodule Plausible.Stats.ExplorationTest do
         assert step4.step.label == "Create site"
       end
 
+      test "handles journey end event step" do
+        site = new_site()
+        now = DateTime.utc_now()
+
+        populate_stats(site, [
+          build(:pageview,
+            user_id: 123,
+            pathname: "/home",
+            timestamp: DateTime.shift(now, minute: -50)
+          ),
+          build(:pageview,
+            user_id: 123,
+            pathname: "/login",
+            timestamp: DateTime.shift(now, minute: -40)
+          ),
+          build(:pageview,
+            user_id: 124,
+            pathname: "/home",
+            timestamp: DateTime.shift(now, minute: -30)
+          ),
+          build(:pageview,
+            user_id: 124,
+            pathname: "/login",
+            timestamp: DateTime.shift(now, minute: -20)
+          ),
+          build(:pageview,
+            user_id: 124,
+            pathname: "/dashboard",
+            timestamp: DateTime.shift(now, minute: -10)
+          ),
+          build(:pageview,
+            user_id: 125,
+            pathname: "/home",
+            timestamp: DateTime.shift(now, minute: -50)
+          ),
+          build(:pageview,
+            user_id: 125,
+            pathname: "/login",
+            timestamp: DateTime.shift(now, minute: -40)
+          ),
+          build(:pageview,
+            user_id: 125,
+            pathname: "/dashboard",
+            timestamp: DateTime.shift(now, minute: -30)
+          )
+        ])
+
+        query = QueryBuilder.build!(site, input_date_range: :all)
+
+        journey = [
+          %Exploration.Journey.Step{name: "pageview", pathname: "/home"},
+          %Exploration.Journey.Step{name: "pageview", pathname: "/login"},
+          %Exploration.Journey.Step{name: Exploration.Journey.Step.journey_end_event()}
+        ]
+
+        assert {:ok, [_step1, _step2, step3]} = Exploration.journey_funnel(query, journey)
+
+        assert step3.step.label == Exploration.Journey.Step.journey_end_label()
+        assert step3.step.name == Exploration.Journey.Step.journey_end_event()
+        assert step3.visitors == 1
+        assert step3.dropoff == 2
+        assert step3.dropoff_percentage == "66.67"
+        assert step3.conversion_rate == "33.33"
+        assert step3.conversion_rate_step == "33.33"
+      end
+
       test "respects filters in the query", %{site: site} do
         query =
           QueryBuilder.build!(site,
@@ -208,6 +274,47 @@ defmodule Plausible.Stats.ExplorationTest do
           end)
 
         assert {:error, :journey_too_long} = Exploration.journey_funnel(query, journey)
+      end
+
+      test "excludes revenue events from journey funnel steps" do
+        site = new_site()
+        now = DateTime.utc_now()
+
+        populate_stats(site, [
+          build(:pageview,
+            user_id: 123,
+            pathname: "/home",
+            timestamp: DateTime.shift(now, minute: -50)
+          ),
+          build(:event,
+            user_id: 123,
+            name: "Purchase",
+            pathname: "/checkout",
+            revenue_reporting_amount: Decimal.new("100"),
+            revenue_reporting_currency: "USD",
+            timestamp: DateTime.shift(now, minute: -40)
+          ),
+          build(:pageview,
+            user_id: 123,
+            pathname: "/thank-you",
+            timestamp: DateTime.shift(now, minute: -30)
+          )
+        ])
+
+        query = QueryBuilder.build!(site, input_date_range: :all)
+
+        journey = [
+          %Exploration.Journey.Step{name: "pageview", pathname: "/home"},
+          %Exploration.Journey.Step{name: "pageview", pathname: "/thank-you"}
+        ]
+
+        assert {:ok, [step1, step2]} = Exploration.journey_funnel(query, journey)
+
+        # Revenue event is skipped
+        assert step1.step.pathname == "/home"
+        assert step1.visitors == 1
+        assert step2.step.pathname == "/thank-you"
+        assert step2.visitors == 1
       end
 
       test "supports backward journey funnel", %{site: site} do
@@ -349,135 +456,6 @@ defmodule Plausible.Stats.ExplorationTest do
       end
     end
 
-    describe "featured_funnel" do
-      test "builds a funnel starting with the most visited step", %{site: site} do
-        query = QueryBuilder.build!(site, input_date_range: :all)
-
-        assert {:ok, %{funnel: [step1, step2, step3, step4]}} =
-                 Exploration.featured_funnel(site, query)
-
-        assert step1.step.pathname == "/home"
-        assert step1.visitors == 2
-
-        assert step2.step.pathname == "/login"
-        assert step2.visitors == 2
-
-        assert step3.step.pathname == "/docs"
-        assert step3.visitors == 1
-
-        assert step4.step.pathname == "/logout"
-        assert step4.visitors == 1
-      end
-
-      test "limits the funnel to max_steps", %{site: site} do
-        query = QueryBuilder.build!(site, input_date_range: :all)
-
-        assert {:ok, %{funnel: [step1, step2]}} =
-                 Exploration.featured_funnel(site, query, max_steps: 2)
-
-        assert step1.step.pathname == "/home"
-        assert step2.step.pathname == "/login"
-      end
-
-      test "returns error when no events exist" do
-        empty_site = new_site()
-        query = QueryBuilder.build!(empty_site, input_date_range: :all)
-
-        assert {:error, :not_found} = Exploration.featured_funnel(empty_site, query)
-      end
-
-      test "stops when no more unseen steps are available" do
-        site = new_site()
-        now = DateTime.utc_now()
-
-        populate_stats(site, [
-          build(:pageview,
-            user_id: 123,
-            pathname: "/only-page",
-            timestamp: DateTime.shift(now, minute: -30)
-          )
-        ])
-
-        query = QueryBuilder.build!(site, input_date_range: :all)
-
-        assert {:ok, %{funnel: [step1]}} =
-                 Exploration.featured_funnel(site, query, max_steps: 6)
-
-        assert step1.step.pathname == "/only-page"
-        assert step1.visitors == 1
-      end
-
-      test "respects query filters", %{site: site} do
-        query =
-          QueryBuilder.build!(site,
-            input_date_range: :all,
-            filters: [[:is, "visit:browser", ["Firefox"]]]
-          )
-
-        assert {:ok, result} = Exploration.featured_funnel(site, query)
-
-        pathnames = Enum.map(result.funnel, & &1.step.pathname)
-        assert pathnames == ["/docs", "/logout"]
-      end
-
-      test "does not revisit already-seen steps in a cycle" do
-        site = new_site()
-        now = DateTime.utc_now()
-
-        populate_stats(site, [
-          # user 123
-          build(:pageview,
-            user_id: 123,
-            pathname: "/a",
-            timestamp: DateTime.shift(now, minute: -50)
-          ),
-          build(:pageview,
-            user_id: 123,
-            pathname: "/b",
-            timestamp: DateTime.shift(now, minute: -40)
-          ),
-          build(:pageview,
-            user_id: 123,
-            pathname: "/a",
-            timestamp: DateTime.shift(now, minute: -30)
-          ),
-          build(:pageview,
-            user_id: 123,
-            pathname: "/b",
-            timestamp: DateTime.shift(now, minute: -20)
-          ),
-          build(:pageview,
-            user_id: 123,
-            pathname: "/c",
-            timestamp: DateTime.shift(now, minute: -10)
-          ),
-          # user 124
-          build(:pageview,
-            user_id: 124,
-            pathname: "/a",
-            timestamp: DateTime.shift(now, minute: -50)
-          ),
-          build(:pageview,
-            user_id: 124,
-            pathname: "/b",
-            timestamp: DateTime.shift(now, minute: -40)
-          ),
-          build(:pageview,
-            user_id: 124,
-            pathname: "/c",
-            timestamp: DateTime.shift(now, minute: -30)
-          )
-        ])
-
-        query = QueryBuilder.build!(site, input_date_range: :all)
-
-        assert {:ok, result} = Exploration.featured_funnel(site, query)
-
-        pathnames = Enum.map(result.funnel, & &1.step.pathname)
-        assert pathnames == ["/a", "/b", "/c"]
-      end
-    end
-
     describe "next_steps" do
       test "suggests the next step for a 2-step journey", %{site: site} do
         query = QueryBuilder.build!(site, input_date_range: :all)
@@ -499,6 +477,47 @@ defmodule Plausible.Stats.ExplorationTest do
         assert next_step3.step.label == "/logout"
         assert next_step3.step.pathname == "/logout"
         assert next_step3.visitors == 1
+      end
+
+      test "excludes revenue events from next step suggestions" do
+        site = new_site()
+        now = DateTime.utc_now()
+
+        populate_stats(site, [
+          build(:pageview,
+            user_id: 123,
+            pathname: "/home",
+            timestamp: DateTime.shift(now, minute: -50)
+          ),
+          build(:event,
+            user_id: 123,
+            name: "Purchase",
+            pathname: "/checkout",
+            revenue_reporting_amount: Decimal.new("100"),
+            revenue_reporting_currency: "USD",
+            timestamp: DateTime.shift(now, minute: -40)
+          ),
+          build(:pageview,
+            user_id: 123,
+            pathname: "/thank-you",
+            timestamp: DateTime.shift(now, minute: -30)
+          )
+        ])
+
+        {:ok, _} =
+          Plausible.Goals.create(site, %{"event_name" => "Purchase", "currency" => "USD"})
+
+        query = QueryBuilder.build!(site, input_date_range: :all)
+
+        assert {:ok, steps} = Exploration.next_steps(site, query, [])
+
+        refute "Purchase" in Enum.map(steps, & &1.step.name)
+        refute "/checkout" in Enum.map(steps, & &1.step.pathname)
+
+        journey = [%Exploration.Journey.Step{name: "pageview", pathname: "/home"}]
+        assert {:ok, [next_step]} = Exploration.next_steps(site, query, journey)
+        assert next_step.step.pathname == "/thank-you"
+        assert next_step.step.name == "pageview"
       end
 
       test "respects max_candidates", %{site: site} do
@@ -1215,6 +1234,120 @@ defmodule Plausible.Stats.ExplorationTest do
         assert next_step7.step.pathname == "/sites/new"
         assert next_step7.step.is_goal
         assert next_step7.visitors == 1
+      end
+
+      test "allows searching for a pageview goal by its pathname" do
+        now = DateTime.utc_now()
+        site = new_site()
+
+        Plausible.Goals.create(site, %{
+          "page_path" => "/page-foo",
+          "display_name" => "Foo"
+        })
+
+        populate_stats(site, [
+          build(:pageview,
+            user_id: 123,
+            pathname: "/home",
+            timestamp: DateTime.shift(now, minute: -300)
+          ),
+          build(:pageview,
+            user_id: 123,
+            pathname: "/page-foo",
+            timestamp: DateTime.shift(now, minute: -290)
+          )
+        ])
+
+        query = QueryBuilder.build!(site, input_date_range: :all)
+
+        journey = [
+          %Exploration.Journey.Step{name: "pageview", pathname: "/home"}
+        ]
+
+        assert {:ok, [next_step]} =
+                 Exploration.next_steps(site, query, journey, search_term: "/page-foo")
+
+        assert {:ok, [^next_step]} =
+                 Exploration.next_steps(site, query, journey, search_term: "Foo")
+
+        assert next_step.step.label == "Foo"
+        assert next_step.step.pathname == "/page-foo"
+        assert next_step.step.is_goal
+        assert next_step.visitors == 1
+      end
+
+      test "won't find pageview event with verbatim `pageview` search" do
+        now = DateTime.utc_now()
+        site = new_site()
+
+        Plausible.Goals.create(site, %{
+          "page_path" => "/page-foo",
+          "display_name" => "Foo"
+        })
+
+        populate_stats(site, [
+          build(:pageview,
+            user_id: 123,
+            pathname: "/home",
+            timestamp: DateTime.shift(now, minute: -300)
+          ),
+          build(:pageview,
+            user_id: 123,
+            pathname: "/page-foo",
+            timestamp: DateTime.shift(now, minute: -290)
+          )
+        ])
+
+        query = QueryBuilder.build!(site, input_date_range: :all)
+
+        journey = [
+          %Exploration.Journey.Step{name: "pageview", pathname: "/home"}
+        ]
+
+        assert {:ok, []} =
+                 Exploration.next_steps(site, query, journey, search_term: "pageview")
+      end
+
+      test "allows searching for a literal event name" do
+        now = DateTime.utc_now()
+        site = new_site()
+
+        Plausible.Goals.create(site, %{
+          "event_name" => "actress",
+          "display_name" => "Scarlett"
+        })
+
+        Plausible.Goals.create(site, %{
+          "event_name" => "bishop",
+          "display_name" => "Knight"
+        })
+
+        populate_stats(site, [
+          build(:event,
+            user_id: 123,
+            name: "actress",
+            pathname: "/lookup",
+            timestamp: DateTime.shift(now, minute: -300)
+          ),
+          build(:event,
+            user_id: 123,
+            name: "bishop",
+            pathname: "/lookup",
+            timestamp: DateTime.shift(now, minute: -290)
+          )
+        ])
+
+        query = QueryBuilder.build!(site, input_date_range: :all)
+
+        journey = [
+          %Exploration.Journey.Step{name: "actress", pathname: ""}
+        ]
+
+        assert {:ok, [next_step]} =
+                 Exploration.next_steps(site, query, journey, search_term: "bishop")
+
+        assert {:ok, [^next_step]} =
+                 Exploration.next_steps(site, query, journey, search_term: "Knight")
       end
 
       test "suggestions matching implicit wildcard from previous step are excluded" do

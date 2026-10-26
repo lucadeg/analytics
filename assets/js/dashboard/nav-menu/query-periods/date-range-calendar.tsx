@@ -1,5 +1,24 @@
 import React, { useLayoutEffect, useRef } from 'react'
 import DatePicker from 'react-flatpickr'
+import { CustomLocale } from 'flatpickr/dist/types/locale'
+
+export const isDateRangeCalendarOpen = (): boolean =>
+  !!document.querySelector('.flatpickr-calendar')
+
+const calendarLocale: Partial<CustomLocale> = {
+  weekdays: {
+    shorthand: ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'],
+    longhand: [
+      'Sunday',
+      'Monday',
+      'Tuesday',
+      'Wednesday',
+      'Thursday',
+      'Friday',
+      'Saturday'
+    ]
+  }
+}
 
 export interface DateRangeCalendarProps {
   id: string
@@ -42,7 +61,8 @@ export function DateRangeCalendar({
         maxDate,
         minDate,
         defaultDate: defaultDates,
-        showMonths: 1
+        showMonths: 1,
+        locale: calendarLocale
       }}
       onClose={
         onCloseWithSelection || onCloseWithNoSelection

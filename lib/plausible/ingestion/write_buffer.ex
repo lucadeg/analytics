@@ -66,6 +66,11 @@ defmodule Plausible.Ingestion.WriteBuffer do
     {:noreply, %{state | buffer: [], buffer_size: 0, timer: timer}}
   end
 
+  def handle_info({:EXIT, _from, reason}, state) do
+    Logger.warning("#{state.name} received EXIT, keeping buffer alive: #{inspect(reason)}")
+    {:noreply, state}
+  end
+
   @impl true
   def handle_call(:flush, _from, state) do
     %{timer: timer, flush_interval_ms: flush_interval_ms} = state
@@ -119,9 +124,7 @@ defmodule Plausible.Ingestion.WriteBuffer do
       Enum.map(fields, fn field ->
         type = schema.__schema__(:type, field) || raise "missing type for #{field}"
 
-        type
-        |> Ecto.Type.type()
-        |> Ecto.Adapters.ClickHouse.Schema.remap_type(schema, field)
+        Ecto.Adapters.ClickHouse.Schema.remap_type(type, schema, field)
       end)
 
     encoding_types = Ch.RowBinary.encoding_types(types)

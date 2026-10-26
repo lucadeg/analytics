@@ -39,7 +39,13 @@ defmodule PlausibleWeb.Live.SharedLinkSettings.Form do
 
   def edit_form(assigns) do
     ~H"""
-    <.form :let={f} for={@form} phx-submit="save-shared-link" phx-target={@myself}>
+    <.form
+      :let={f}
+      for={@form}
+      phx-submit="save-shared-link"
+      phx-target={@myself}
+      class="flex flex-col gap-6"
+    >
       <.title>Edit shared link</.title>
 
       <.input field={f[:name]} label="Name" required="required" autocomplete="off" />
@@ -86,7 +92,13 @@ defmodule PlausibleWeb.Live.SharedLinkSettings.Form do
 
   def create_form(assigns) do
     ~H"""
-    <.form :let={f} for={@form} phx-submit="save-shared-link" phx-target={@myself}>
+    <.form
+      :let={f}
+      for={@form}
+      phx-submit="save-shared-link"
+      phx-target={@myself}
+      class="flex flex-col gap-6"
+    >
       <.title>New shared link</.title>
       <.input field={f[:name]} label="Name" required="required" autocomplete="off" />
 
@@ -117,7 +129,6 @@ defmodule PlausibleWeb.Live.SharedLinkSettings.Form do
             type="password"
             placeholder="Enter password"
             autocomplete="new-password"
-            mt?={false}
           />
         </div>
       </div>
@@ -204,15 +215,10 @@ defmodule PlausibleWeb.Live.SharedLinkSettings.Form do
   def handle_event(
         "save-shared-link",
         %{"shared_link" => shared_link_params},
-        %{assigns: %{shared_link: %Plausible.Site.SharedLink{} = shared_link}} = socket
+        %{assigns: %{shared_link: %Plausible.Site.SharedLink{} = shared_link, site: site}} =
+          socket
       ) do
-    changeset =
-      Plausible.Site.SharedLink.changeset(
-        shared_link,
-        shared_link_params
-      )
-
-    case Plausible.Repo.update(changeset) do
+    case Sites.update_shared_link(shared_link, site, shared_link_params) do
       {:ok, updated_shared_link} ->
         socket = socket.assigns.on_save_shared_link.(updated_shared_link, socket)
         {:noreply, socket}

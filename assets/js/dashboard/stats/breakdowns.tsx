@@ -1,4 +1,4 @@
-import React, { ReactNode, useEffect, useRef } from 'react'
+import React, { ReactNode, useEffect, useMemo, useRef } from 'react'
 import { SortDirection } from '../../types/query-api'
 import type { QueryResultRow, QueryResultQuery } from '../api'
 import { Metric } from './metrics'
@@ -10,15 +10,32 @@ import {
   addFilter,
   ApiFilter,
   NonTimeDimension,
+  OrderByEntry,
   StatsQuery
 } from '../stats-query'
+import { Filter } from '../dashboard-state'
+import classNames from 'classnames'
+import { DIRECT_NONE } from './sources'
+import { StatsReportQueryKey } from '../hooks/use-query-api'
 
 export type SharedBreakdownReportProps = {
   dimensionLabel: string
   dimensions: NonTimeDimension[]
   metrics: Metric[]
-  getFilterInfo: (row: QueryResultRow) => FilterInfo | null
-  getExternalLinkUrl?: (row: QueryResultRow) => string | null
+  alwaysOnFilters?: ApiFilter[]
+  getStatsQuery?: (queryKey: StatsReportQueryKey) => StatsQuery
+  /**
+   * When true, `percentage` is shown inline inside the Visitors
+   * cell rather than as its own column. Set to false for reports that want
+   * percentage as a separate breakdown column (e.g. custom properties).
+   */
+  bundlePercentageWithVisitors?: boolean
+  /**
+   * Metrics that should be dropped from the rendered columns when every row
+   * (across all loaded pages) has null for that metric. Used by goal breakdowns
+   * to hide revenue columns when the current rows have no revenue data.
+   */
+  hideMetricsIfAllNull?: Metric[]
 }
 
 export type ColumnConfiguration<T> = {
@@ -35,6 +52,66 @@ export type ColumnConfiguration<T> = {
   width?: string
   /** Aligns column content. */
   align?: 'left' | 'right'
+  /** Hides the column on mobile (below md breakpoint). */
+  hideOnMobile?: boolean
+}
+
+export type GetFilterInfo = (
+  dimension: NonTimeDimension,
+  row: QueryResultRow
+) => FilterInfo | null
+
+export function defaultGetFilterInfo(
+  dimension: NonTimeDimension,
+  row: QueryResultRow
+): FilterInfo {
+  const dimensionWithoutPrefix = dimension.replace(/^(event|visit):/, '')
+
+  return {
+    prefix: dimensionWithoutPrefix,
+    filter: ['is', dimensionWithoutPrefix, [row.dimensions[0]]] as Filter
+  }
+}
+
+export function getReferrerUrlFilterInfo(
+  _dimension: NonTimeDimension,
+  row: QueryResultRow
+): FilterInfo | null {
+  if (row.dimensions[0] === DIRECT_NONE) {
+    return null
+  }
+  return {
+    prefix: 'referrer',
+    filter: ['is', 'referrer', [row.dimensions[0]]]
+  }
+}
+
+export const getScreenFilterInfo = (
+  _dimension: NonTimeDimension,
+  row: QueryResultRow
+): FilterInfo => ({
+  filter: ['is', 'screen', [row.dimensions[0]]],
+  prefix: 'screen'
+})
+
+export function MetricValueWrapper({
+  className,
+  children
+}: {
+  className?: string
+  children: ReactNode
+}) {
+  return (
+    <span
+      className={classNames(
+        'font-medium text-sm block text-gray-800 dark:text-gray-200',
+        className
+      )}
+      data-testid="metric-value"
+    >
+      {children}
+    </span>
+  )
 }
 
 export function MetricValueTooltipContent({
@@ -46,7 +123,7 @@ export function MetricValueTooltipContent({
   comparisonDateRangeLabel
 }: {
   value: ValueType
-  comparison: { value: ValueType; change: number } | null
+  comparison: { value: ValueType; change?: number } | null
   metric: Metric
   metricLabel: string
   dateRangeLabel: string
@@ -61,28 +138,28 @@ export function MetricValueTooltipContent({
         <div>
           <div className="flex gap-x-4">
             <div className="flex flex-col">
-              <span className="font-medium text-sm/6 text-white">
+              <span className="font-semibold">
                 {longFormatter(value)}
                 {label}
               </span>
-              <div className="font-normal text-xs text-white">
-                {dateRangeLabel}
-              </div>
+              <div className="font-normal">{dateRangeLabel}</div>
             </div>
-            <ChangeArrow
-              metric={metric}
-              change={comparison.change}
-              className="text-xs/6 font-medium text-white"
-            />
+            {comparison.change != null && (
+              <ChangeArrow
+                metric={metric}
+                change={comparison.change}
+                className="text-xs/5"
+              />
+            )}
           </div>
         </div>
-        <div className="w-full border-t border-gray-600" />
+        <div className="w-full border-t border-gray-200 dark:border-gray-600" />
         <div>
-          <div className="font-medium text-sm/6 text-gray-300/80">
+          <div className="font-semibold text-gray-500 dark:text-gray-400">
             {longFormatter(comparison.value)}
             {label}
           </div>
-          <div className="font-normal text-xs text-gray-300/80">
+          <div className="font-normal text-gray-500 dark:text-gray-400">
             {comparisonDateRangeLabel}
           </div>
         </div>
@@ -153,48 +230,12 @@ export function extractMetricValue(
   return { metricIndex, value, comparison }
 }
 
-const DEFAULT_DETAILED_METRICS = [
-  'visitors',
-  'percentage',
-  'bounce_rate',
-  'visit_duration'
-] as Metric[]
+const CANNOT_ORDER_BY_DIMENSIONS = ['event:goal']
 
-export const getBreakdownMetrics = ({
-  hasConversionGoalFilter,
-  isRealtime,
-  isDetailed = false,
-  isRevenueAvailable = false,
-  detailedMetrics = DEFAULT_DETAILED_METRICS
-}: {
-  hasConversionGoalFilter: boolean
-  isRealtime: boolean
-  isDetailed?: boolean
-  isRevenueAvailable?: boolean
-  detailedMetrics?: Metric[]
-}): Metric[] => {
-  if (hasConversionGoalFilter && isDetailed && isRevenueAvailable) {
-    return [
-      'total_visitors',
-      'visitors',
-      'group_conversion_rate',
-      'total_revenue',
-      'average_revenue'
-    ]
-  }
-  if (hasConversionGoalFilter && isDetailed) {
-    return ['total_visitors', 'visitors', 'group_conversion_rate']
-  }
-  if (hasConversionGoalFilter) {
-    return ['visitors', 'group_conversion_rate']
-  }
-  if (isRealtime) {
-    return ['visitors', 'percentage']
-  }
-  if (isDetailed) {
-    return detailedMetrics
-  }
-  return ['visitors', 'percentage']
+export function dimensionOrderBy(dimensions: NonTimeDimension[]) {
+  return dimensions
+    .filter((dim) => !CANNOT_ORDER_BY_DIMENSIONS.includes(dim))
+    .map((dim): OrderByEntry => [dim, 'asc'])
 }
 
 export function addDimensionSearchFilter(
@@ -208,4 +249,21 @@ export function addDimensionSearchFilter(
     [search],
     { case_sensitive: false }
   ] as ApiFilter)
+}
+
+export function useColumnsHiddenForAllNull(
+  rows: QueryResultRow[] | null | undefined,
+  query: QueryResultQuery | null | undefined,
+  hideMetricsIfAllNull: Metric[] | undefined
+): Set<Metric> {
+  return useMemo(() => {
+    const hidden = new Set<Metric>()
+    if (!hideMetricsIfAllNull || !rows?.length || !query) return hidden
+    for (const metric of hideMetricsIfAllNull) {
+      const idx = query.metrics.indexOf(metric)
+      if (idx === -1) continue
+      if (rows.every((row) => row.metrics[idx] == null)) hidden.add(metric)
+    }
+    return hidden
+  }, [rows, query, hideMetricsIfAllNull])
 }

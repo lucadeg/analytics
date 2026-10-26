@@ -10,14 +10,13 @@ defmodule PlausibleWeb.Live.SubscriptionSettings do
   import PlausibleWeb.Components.Billing.Helpers
 
   alias Plausible.Teams
-  alias PlausibleWeb.Router.Helpers, as: Routes
 
   def mount(_params, _session, socket) do
     team = socket.assigns.current_team
 
     if Teams.setup?(team) &&
          socket.assigns.current_team_role not in Plausible.Billing.allowed_roles() do
-      {:ok, redirect(socket, to: Routes.site_path(socket, :index))}
+      {:ok, redirect(socket, to: ~p"/sites")}
     else
       subscription = Teams.Billing.get_subscription(team)
       invoices = Plausible.Billing.paddle_api().get_invoices(subscription)
@@ -80,8 +79,7 @@ defmodule PlausibleWeb.Live.SubscriptionSettings do
               </p>
             </div>
             <.button_link
-              href={Routes.billing_path(PlausibleWeb.Endpoint, :choose_plan)}
-              mt?={false}
+              href={~p"/billing/choose-plan"}
               id="upgrade-or-change-plan-link"
             >
               {trial_button_label(@current_team)}
@@ -110,24 +108,28 @@ defmodule PlausibleWeb.Live.SubscriptionSettings do
                   <p class="text-sm text-gray-600 dark:text-gray-400">
                     Up to {PlausibleWeb.AuthView.subscription_quota(@subscription)} monthly pageviews
                   </p>
-                  <%= if @subscription.next_bill_amount && @subscription.next_bill_date do %>
-                    <p class="text-sm text-gray-600 dark:text-gray-400">
-                      {PlausibleWeb.BillingView.present_currency(@subscription.currency_code)}{@subscription.next_bill_amount} / {present_subscription_interval(
-                        @subscription
-                      )} • Renews on {Calendar.strftime(@subscription.next_bill_date, "%b %-d, %Y")}
-                    </p>
+                  <%= cond do %>
+                    <% Plausible.Billing.Subscription.manual_subscription?(@subscription) && @subscription.next_bill_date -> %>
+                      <p class="text-sm text-gray-600 dark:text-gray-400">
+                        Paid until {Calendar.strftime(@subscription.next_bill_date, "%b %-d, %Y")}
+                      </p>
+                    <% @subscription.next_bill_amount && @subscription.next_bill_date -> %>
+                      <p class="text-sm text-gray-600 dark:text-gray-400">
+                        {PlausibleWeb.BillingView.present_currency(@subscription.currency_code)}{@subscription.next_bill_amount} / {present_subscription_interval(
+                          @subscription
+                        )} • Renews on {Calendar.strftime(@subscription.next_bill_date, "%b %-d, %Y")}
+                      </p>
+                    <% true -> %>
                   <% end %>
                 </div>
                 <div class="flex gap-2">
                   <.button_link
                     :if={
-                      @subscription &&
-                        Plausible.Billing.Subscriptions.resumable?(@subscription) &&
+                      Plausible.Billing.Subscriptions.resumable?(@subscription) &&
                         @subscription.update_url
                     }
                     theme="secondary"
                     href={@subscription.update_url}
-                    mt?={false}
                     id="billing-details-link"
                   >
                     Billing details
@@ -137,8 +139,7 @@ defmodule PlausibleWeb.Live.SubscriptionSettings do
                       not (Plausible.Teams.Billing.enterprise_configured?(@current_team) &&
                              Plausible.Billing.Subscriptions.halted?(@subscription))
                     }
-                    href={Routes.billing_path(PlausibleWeb.Endpoint, :choose_plan)}
-                    mt?={false}
+                    href={~p"/billing/choose-plan"}
                     id="upgrade-or-change-plan-link"
                   >
                     {change_plan_button_label(@subscription)}
@@ -274,6 +275,7 @@ defmodule PlausibleWeb.Live.SubscriptionSettings do
                       theme="secondary"
                       x-on:click="showAll = true"
                       x-show="!showAll"
+                      class="mt-6"
                     >
                       Show more
                     </.button>
@@ -287,7 +289,7 @@ defmodule PlausibleWeb.Live.SubscriptionSettings do
 
     <%= if Plausible.Billing.Subscriptions.resumable?(@subscription) && @subscription.cancel_url do %>
       <div class="flex gap-2">
-        <.button_link theme="danger" href={@subscription.cancel_url} mt?={false}>
+        <.button_link theme="danger" href={@subscription.cancel_url}>
           Cancel plan
         </.button_link>
         <%= if Application.get_env(:plausible, :environment) == "dev" do %>
@@ -295,7 +297,6 @@ defmodule PlausibleWeb.Live.SubscriptionSettings do
             href={@subscription.update_url}
             theme="secondary"
             class="text-yellow-600 dark:text-yellow-400"
-            mt?={false}
           >
             [DEV ONLY] Change status
           </.button_link>

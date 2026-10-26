@@ -7,24 +7,37 @@
 import 'phoenix_html'
 import { Socket } from 'phoenix'
 import { LiveSocket } from 'phoenix_live_view'
-import { Modal, Dropdown } from 'prima'
+import { Modal, Dropdown, Listbox } from 'prima'
 import topbar from 'topbar'
 /* eslint-enable import/no-unresolved */
 
 import Alpine from 'alpinejs'
 
+import Confirm from './confirm'
+import CopySnippet from './copy-snippet'
+import MemberRows from './member-rows'
+
 let csrfToken = document.querySelector("meta[name='csrf-token']")
 let websocketUrl = document.querySelector("meta[name='websocket-url']")
 if (csrfToken && websocketUrl) {
-  let Hooks = { Modal, Dropdown }
-  Hooks.Metrics = {
+  let Hooks = { Modal, Dropdown, Listbox, Confirm, CopySnippet, MemberRows }
+
+  Hooks.VerificationLifecycle = {
     mounted() {
-      this.handleEvent('send-metrics', ({ event_name }) => {
-        window.plausible(event_name)
-        this.pushEvent('send-metrics-after', { event_name })
+      // Lets a LiveView tell the client to tear down the websocket connection
+      // once it's done with it (e.g. PlausibleWeb.Live.Verification, once its
+      // banner has been dismissed) - the server-side process then terminates
+      // gracefully.
+      this.handleEvent('disconnect-liveview', () => liveSocket.disconnect())
+
+      this.handleEvent('verification-succeeded', ({ queryParams }) => {
+        window.dispatchEvent(
+          new CustomEvent('verification-finished', { detail: { queryParams } })
+        )
       })
     }
   }
+
   let Uploaders = {}
   Uploaders.S3 = function (entries, onViewError) {
     entries.forEach((entry) => {

@@ -14,6 +14,9 @@ defmodule Plausible.Billing.Feature do
 
     * `:display_name` - human-readable display name of the feature
 
+    * `:toggle_display_name` - human-readable display name used in dashboard
+    toggle notifications. Defaults to `:display_name` if not set.
+
     * `:toggle_field` - the field in the %Plausible.Site{} schema that toggles
     the feature. If `nil` or not set, toggle/2 silently returns `:ok`
 
@@ -69,6 +72,7 @@ defmodule Plausible.Billing.Feature do
     Plausible.Billing.Feature.Goals,
     Plausible.Billing.Feature.RevenueGoals,
     Plausible.Billing.Feature.SiteSegments,
+    Plausible.Billing.Feature.SiteAnnotations,
     Plausible.Billing.Feature.SitesAPI,
     Plausible.Billing.Feature.StatsAPI,
     Plausible.Billing.Feature.SSO,
@@ -108,6 +112,10 @@ defmodule Plausible.Billing.Feature do
 
       @impl true
       def display_name, do: Keyword.get(unquote(opts), :display_name)
+
+      def toggle_display_name do
+        Keyword.get(unquote(opts), :toggle_display_name, display_name())
+      end
 
       @impl true
       def toggle_field, do: Keyword.get(unquote(opts), :toggle_field)
@@ -162,7 +170,8 @@ defmodule Plausible.Billing.Feature.Funnels do
   @moduledoc false
   use Plausible.Billing.Feature,
     name: :funnels,
-    display_name: "Funnels",
+    display_name: "Funnels and user journeys",
+    toggle_display_name: "Funnels",
     toggle_field: :funnels_enabled
 end
 
@@ -201,6 +210,13 @@ defmodule Plausible.Billing.Feature.SiteSegments do
   use Plausible.Billing.Feature,
     name: :site_segments,
     display_name: "Shared Segments"
+end
+
+defmodule Plausible.Billing.Feature.SiteAnnotations do
+  @moduledoc false
+  use Plausible.Billing.Feature,
+    name: :site_annotations,
+    display_name: "Shared Annotations"
 end
 
 defmodule Plausible.Billing.Feature.StatsAPI do

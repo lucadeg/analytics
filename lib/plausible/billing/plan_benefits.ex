@@ -10,13 +10,13 @@ defmodule Plausible.Billing.PlanBenefits do
   def for_starter(starter_plan) do
     [
       site_limit_benefit(starter_plan),
-      data_retention_benefit(starter_plan),
+      "No retention limit",
       "Intuitive, fast and privacy-friendly dashboard",
       "Email/Slack reports",
       "Google Analytics import"
     ]
     |> Kernel.++(feature_benefits(starter_plan))
-    |> Kernel.++(["Saved Segments"])
+    |> Kernel.++(benefits_available_on_lowest_plan())
   end
 
   @doc """
@@ -27,13 +27,20 @@ defmodule Plausible.Billing.PlanBenefits do
   and Growth. Everything in Starter is also included in Growth.
   """
   def for_growth(growth_plan, starter_benefits) do
-    [
-      if(Enum.empty?(starter_benefits), do: nil, else: "Everything in Starter"),
+    lowest_plan? = Enum.empty?(starter_benefits)
+
+    if(not lowest_plan?, do: ["Everything in Starter"], else: [])
+    |> Kernel.++([
       site_limit_benefit(growth_plan),
       team_member_limit_benefit(growth_plan),
-      "Team Management",
-      if(Enum.empty?(starter_benefits), do: "Saved Segments", else: nil)
-    ]
+      "Team Management"
+    ])
+    |> Kernel.++(
+      if(lowest_plan?,
+        do: ["No retention limit" | benefits_available_on_lowest_plan()],
+        else: []
+      )
+    )
     |> Kernel.++(feature_benefits(growth_plan))
     |> Kernel.--(starter_benefits)
     |> Enum.filter(& &1)
@@ -50,8 +57,7 @@ defmodule Plausible.Billing.PlanBenefits do
     [
       "Everything in Growth",
       site_limit_benefit(plan),
-      team_member_limit_benefit(plan),
-      data_retention_benefit(plan)
+      team_member_limit_benefit(plan)
     ]
     |> Kernel.++(feature_benefits(plan))
     |> Kernel.--(growth_benefits)
@@ -87,9 +93,6 @@ defmodule Plausible.Billing.PlanBenefits do
         true -> "50+ sites"
       end
 
-    data_retention =
-      if "5 years of data retention" in business_benefits, do: "5+ years of data retention"
-
     [
       "Everything in Business",
       sites,
@@ -99,14 +102,13 @@ defmodule Plausible.Billing.PlanBenefits do
       "Single Sign-On (SSO)",
       "Managed Proxy",
       "Scheduled raw event data exports",
-      data_retention,
       "Priority support"
     ]
     |> Enum.filter(& &1)
   end
 
-  defp data_retention_benefit(%Plan{} = plan) do
-    if plan.data_retention_in_years, do: "#{plan.data_retention_in_years} years of data retention"
+  defp benefits_available_on_lowest_plan do
+    ["Saved Segments", "Annotations"]
   end
 
   defp team_member_limit_benefit(%Plan{} = plan) do
@@ -127,7 +129,7 @@ defmodule Plausible.Billing.PlanBenefits do
     Enum.flat_map(plan.features, fn feature_mod ->
       case feature_mod.name() do
         :goals -> ["Goals and custom events"]
-        :stats_api -> ["Stats API (600 requests per hour)", "Looker Studio Connector"]
+        :stats_api -> ["Stats API (600 requests per hour)", "Data Studio Connector"]
         :shared_links -> ["Shared Links", "Embedded Dashboards"]
         :revenue_goals -> ["Ecommerce revenue attribution"]
         _ -> [feature_mod.display_name()]

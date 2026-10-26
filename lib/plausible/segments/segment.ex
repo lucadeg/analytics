@@ -29,7 +29,6 @@ defmodule Plausible.Segments.Segment do
     |> cast(attrs, [
       :name,
       :segment_data,
-      :site_id,
       :type,
       :owner_id
     ])
@@ -63,7 +62,7 @@ defmodule Plausible.Segments.Segment do
 
   defp validate_segment_data_filters(%Ecto.Changeset{} = changeset) do
     case get_field(changeset, :segment_data) do
-      %{"filters" => filters} when is_list(filters) and length(filters) > 0 ->
+      %{"filters" => filters} when is_list(filters) and filters != [] ->
         changeset
 
       _ ->

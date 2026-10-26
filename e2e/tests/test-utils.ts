@@ -21,12 +21,36 @@ export async function expectLiveViewConnected(page: Page) {
     .toBeGreaterThan(0)
 }
 
+const visibleFlash = (page: Page) =>
+  page.getByTestId('live-flash').filter({ visible: true })
+
+export async function hasFlashMessage(page: Page, message?: string) {
+  const flash = visibleFlash(page)
+  await expect(
+    message ? flash.filter({ hasText: message }) : flash
+  ).toBeVisible()
+}
+
+export async function hasNoFlashMessage(page: Page) {
+  await expect(visibleFlash(page)).toHaveCount(0)
+}
+
+export async function closeFlashMessage(page: Page) {
+  await visibleFlash(page).getByRole('button').click()
+  await hasNoFlashMessage(page)
+}
+
 export function randomID() {
   return Math.random().toString(16).slice(2)
 }
 
 export const tabButton = (page: Page | Locator, label: HasTextArg) =>
   page.getByTestId('tab-button').filter({ hasText: label })
+
+export const tabButtonWithDropdown = (
+  page: Page | Locator,
+  label: HasTextArg
+) => page.getByTestId('tab-button-with-dropdown').filter({ hasText: label })
 
 export const header = (report: Locator, label: HasTextArg) =>
   report
@@ -38,10 +62,15 @@ export const expectHeaders = async (report: Locator, headers: HaveTextArg) =>
   expect(report.getByTestId('report-header')).toHaveText(headers)
 
 export const expectRows = async (report: Locator, labels: HaveTextArg) =>
-  expect(report.getByTestId('report-row').getByRole('link')).toHaveText(labels)
+  expect(
+    report.getByTestId('report-row').getByTestId('dimension-value')
+  ).toHaveText(labels)
 
 export const rowLink = (report: Locator, label: HasTextArg) =>
-  report.getByTestId('report-row').filter({ hasText: label }).getByRole('link')
+  report
+    .getByTestId('report-row')
+    .filter({ hasText: label })
+    .getByTestId('dimension-value')
 
 export const expectMetricValues = async (
   report: Locator,
@@ -58,6 +87,12 @@ export const expectMetricValues = async (
 export const dropdown = (report: Locator) =>
   report.getByTestId('dropdown-items')
 
+// Needed before opening dropdown again right after it closes (usually, when picking an item).
+// There's a leave transition for the dropdown and interacting with the dropdown opener
+// during the transition may mean that the dropdown doesn't actually open.
+export const expectDropdownClosed = async (report: Locator) =>
+  expect(dropdown(report)).toHaveCount(0)
+
 export const searchInput = (report: Locator) =>
   report.getByTestId('search-input')
 
@@ -70,28 +105,87 @@ export const closeModalButton = (page: Page) =>
   page.getByRole('button', { name: 'Close modal' })
 
 export const filterButton = (page: Page) =>
-  page.getByRole('button', { name: 'Filter', exact: true })
+  page.getByRole('button', { name: /^(Filter|Add filter)$/ })
+
+const filterMenu = (page: Page) => page.getByTestId('filtermenu')
+
+const filterSubmenu = (page: Page) => page.getByTestId('filtermenu-submenu')
 
 export const filterItemButton = (page: Page, label: HasTextArg) =>
-  page.getByTestId('filtermenu').getByRole('link', { name: label, exact: true })
+  filterMenu(page).getByRole('button', { name: label, exact: true })
 
-export const applyFilterButton = (page: Page, { disabled = false } = {}) =>
-  page.getByRole('button', {
-    name: 'Apply filter',
-    disabled
-  })
+export const filterSubmenuItemButton = (page: Page, label: HasTextArg) =>
+  filterSubmenu(page).getByRole('button', { name: label, exact: true })
 
-export const filterRow = (page: Page, key: string) =>
-  page.getByTestId(`filter-row-${key}`)
+export const filterSubmenuSegmentItem = (page: Page, name: HasTextArg) =>
+  filterSubmenu(page).getByRole('link').filter({ hasText: name })
 
-export const suggestedItem = (scoped: Locator, url: string) =>
-  scoped.getByRole('listitem').filter({ hasText: url })
+export const openFilterSubmenuItem = async (
+  page: Page,
+  row: string,
+  item: string
+) => {
+  await filterItemButton(page, row).click()
+  await filterSubmenuItemButton(page, item).click()
+}
 
-export const filterOperator = (scoped: Locator) =>
-  scoped.getByTestId('filter-operator')
+export const openSegmentsSubmenu = (page: Page) =>
+  filterItemButton(page, 'Segment').click()
 
-export const filterOperatorOption = (scoped: Locator, option: HasTextArg) =>
-  scoped.getByTestId('filter-operator-option').filter({ hasText: option })
+// Waits for the panel to unmount. Reopening the menu during its closing
+// animation leaves the panel unmounted.
+export const closeFilterMenu = async (page: Page) => {
+  await filterButton(page).click()
+  await expect(filterMenu(page)).toBeHidden()
+}
+
+export const openPropertyKeys = (page: Page) =>
+  filterItemButton(page, 'Property').click()
+
+export const propertyKeySearch = (page: Page) =>
+  page.getByRole('combobox', { name: 'Properties' })
+
+export const propertyKeyOption = (page: Page, key: string) =>
+  page
+    .getByRole('listbox', { name: 'Properties' })
+    .getByRole('option', { name: key, exact: true })
+
+export const filterPill = (page: Page, name: string) =>
+  page.getByRole('group', { name, exact: true })
+
+export const filterPillValuesButton = (page: Page, name: string) =>
+  page.getByRole('button', { name: `Edit filter: ${name}`, exact: true })
+
+export const filterPillOperatorButton = (page: Page, name: string) =>
+  page.getByRole('button', { name: `Change operator: ${name}`, exact: true })
+
+export const filterOperatorOption = (page: Page, option: string) =>
+  page
+    .getByRole('group', { name: 'Operators' })
+    .getByRole('button', { name: option, exact: true })
+
+export const filterValueSearch = (page: Page) =>
+  page.getByRole('combobox', { name: /^Values/ })
+
+export const filterValueOption = (page: Page, label: string) =>
+  page
+    .getByRole('listbox', { name: /^Values/ })
+    .getByRole('option', { name: label, exact: true })
+
+export const pickFilterValue = async (
+  page: Page,
+  { search, value }: { search?: string; value: string }
+) => {
+  if (search !== undefined) {
+    await filterValueSearch(page).fill(search)
+  }
+  await filterValueOption(page, value).click()
+}
+
+export const closeFilterEditor = async (page: Page) => {
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('listbox', { name: /^Values/ })).toBeHidden()
+}
 
 type HaveTextArg = string | RegExp | ReadonlyArray<string | RegExp>
 type HasTextArg = string | RegExp

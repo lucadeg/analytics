@@ -35,7 +35,7 @@ defmodule PlausibleWeb.Live.CustomerSupport.Team do
 
       {:noreply, go_to_tab(socket, tab, params, :team, tab_component(tab))}
     else
-      {:noreply, redirect(socket, to: Routes.customer_support_path(socket, :index))}
+      {:noreply, redirect(socket, to: ~p"/cs")}
     end
   end
 
@@ -307,20 +307,26 @@ defmodule PlausibleWeb.Live.CustomerSupport.Team do
   defp subscription_plan(team) do
     subscription = team.subscription
 
-    if Plausible.Billing.Subscription.Status.active?(subscription) &&
-         subscription.paddle_subscription_id do
-      quota = PlausibleWeb.AuthView.subscription_quota(subscription)
-      interval = PlausibleWeb.AuthView.subscription_interval(subscription)
+    cond do
+      Plausible.Billing.Subscription.Status.active?(subscription) &&
+          subscription.paddle_subscription_id ->
+        quota = PlausibleWeb.AuthView.subscription_quota(subscription)
+        interval = PlausibleWeb.AuthView.subscription_interval(subscription)
 
-      assigns = %{quota: quota, interval: interval, subscription: subscription}
+        assigns = %{quota: quota, interval: interval, subscription: subscription}
 
-      ~H"""
-      <.styled_link new_tab={true} href={manage_url(@subscription)}>
-        {@quota} ({@interval})
-      </.styled_link>
-      """
-    else
-      "--"
+        ~H"""
+        <.styled_link new_tab={true} href={manage_url(@subscription)}>
+          {@quota} ({@interval})
+        </.styled_link>
+        """
+
+      Plausible.Billing.Subscription.Status.active?(subscription) &&
+          Plausible.Billing.Subscription.manual_subscription?(subscription) ->
+        "Manually billed enterprise"
+
+      true ->
+        "--"
     end
   end
 

@@ -11,6 +11,7 @@ import { AppNavigationLink } from '../../navigation/use-app-navigate'
 import { DashboardPeriod } from '../../dashboard-time-periods'
 import { useMatch } from 'react-router-dom'
 import { rootRoute } from '../../router'
+import { isDateRangeCalendarOpen } from './date-range-calendar'
 
 const ArrowKeybind = ({
   keyboardKey
@@ -36,6 +37,8 @@ const ArrowKeybind = ({
       type="keydown"
       keyboardKey={keyboardKey}
       navigateProps={{ search }}
+      // Don't hijack arrow keys flatpickr uses for its own day-cell navigation.
+      shouldAlsoIgnoreWhen={[isDateRangeCalendarOpen]}
     />
   )
 }
@@ -56,7 +59,7 @@ function ArrowIcon({
         'size-3.5',
         disabled
           ? 'text-gray-400 dark:text-gray-500'
-          : 'text-gray-700 dark:text-gray-300'
+          : 'text-gray-800 dark:text-gray-300'
       )}
       xmlns="http://www.w3.org/2000/svg"
       viewBox="0 0 24 24"
@@ -96,7 +99,7 @@ export function MovePeriodArrows() {
     classNames(
       'flex items-center justify-center px-px h-full rounded-md',
       enabled
-        ? 'text-gray-700 dark:text-gray-300'
+        ? 'text-gray-800 dark:text-gray-300'
         : 'text-gray-400 dark:text-gray-600 cursor-not-allowed'
     )
 

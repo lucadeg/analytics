@@ -4,148 +4,30 @@ import {
   DeleteSegmentModal,
   UpdateSegmentModal
 } from './segment-modals'
-import {
-  getSearchToSetSegmentFilter,
-  getSegmentNamePlaceholder,
-  handleSegmentResponse,
-  SavedSegment,
-  SegmentData,
-  SegmentDataFromApi
-} from '../filtering/segments'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { getSegmentNamePlaceholder, SavedSegments } from '../filtering/segments'
 import { useSiteContext } from '../site-context'
-import { cleanLabels, remapToApiFilters } from '../util/filters'
-import { useAppNavigate } from '../navigation/use-app-navigate'
 import { useDashboardStateContext } from '../dashboard-state-context'
 import { useUserContext } from '../user-context'
-import { mutation } from '../api'
 import { useRoutelessModalsContext } from '../navigation/routeless-modals-context'
-import { useSegmentsContext } from '../filtering/segments-context'
+import {
+  useCreateSegment,
+  useDeleteSegment,
+  usePatchSegment
+} from './use-segment-mutations'
 
-export type RoutelessSegmentModal = 'create' | 'update' | 'delete'
+export type RoutelessSegmentModal =
+  | { type: 'create-segment'; segment?: SavedSegments[number] }
+  | { type: 'update-segment' }
+  | { type: 'delete-segment'; segment: SavedSegments[number] }
 
 export const RoutelessSegmentModals = () => {
-  const { updateOne, addOne, removeOne } = useSegmentsContext()
-  const navigate = useAppNavigate()
-  const queryClient = useQueryClient()
   const site = useSiteContext()
   const { modal, setModal } = useRoutelessModalsContext()
   const { dashboardState, expandedSegment } = useDashboardStateContext()
   const user = useUserContext()
-
-  const patchSegment = useMutation({
-    mutationFn: async ({
-      id,
-      name,
-      type,
-      segment_data
-    }: Pick<SavedSegment, 'id'> &
-      Partial<Pick<SavedSegment, 'name' | 'type'>> & {
-        segment_data?: SegmentData
-      }) => {
-      const response: SavedSegment & { segment_data: SegmentDataFromApi } =
-        await mutation(
-          `/api/${encodeURIComponent(site.domain)}/segments/${id}`,
-          {
-            method: 'PATCH',
-            body: {
-              name,
-              type,
-              ...(segment_data && {
-                segment_data: {
-                  filters: remapToApiFilters(segment_data.filters),
-                  labels: cleanLabels(segment_data.filters, segment_data.labels)
-                }
-              })
-            }
-          }
-        )
-
-      return handleSegmentResponse(response)
-    },
-    onSuccess: async (segment) => {
-      updateOne(segment)
-      queryClient.invalidateQueries({ queryKey: ['segments'] })
-      navigate({
-        search: getSearchToSetSegmentFilter(segment, {
-          omitAllOtherFilters: true
-        }),
-        state: {
-          expandedSegment: null
-        }
-      })
-      setModal(null)
-    }
-  })
-
-  const createSegment = useMutation({
-    mutationFn: async ({
-      name,
-      type,
-      segment_data
-    }: {
-      name: string
-      type: 'personal' | 'site'
-      segment_data: SegmentData
-    }) => {
-      const response: SavedSegment & { segment_data: SegmentDataFromApi } =
-        await mutation(`/api/${encodeURIComponent(site.domain)}/segments`, {
-          method: 'POST',
-          body: {
-            name,
-            type,
-            segment_data: {
-              filters: remapToApiFilters(segment_data.filters),
-              labels: cleanLabels(segment_data.filters, segment_data.labels)
-            }
-          }
-        })
-      return handleSegmentResponse(response)
-    },
-    onSuccess: async (segment) => {
-      addOne(segment)
-      queryClient.invalidateQueries({ queryKey: ['segments'] })
-      navigate({
-        search: getSearchToSetSegmentFilter(segment, {
-          omitAllOtherFilters: true
-        }),
-        state: {
-          expandedSegment: null
-        }
-      })
-      setModal(null)
-    }
-  })
-
-  const deleteSegment = useMutation({
-    mutationFn: async (data: Pick<SavedSegment, 'id'>) => {
-      const response: SavedSegment & { segment_data: SegmentDataFromApi } =
-        await mutation(
-          `/api/${encodeURIComponent(site.domain)}/segments/${data.id}`,
-          {
-            method: 'DELETE'
-          }
-        )
-      return handleSegmentResponse(response)
-    },
-    onSuccess: (segment): void => {
-      removeOne(segment)
-      queryClient.invalidateQueries({ queryKey: ['segments'] })
-      navigate({
-        search: (s) => {
-          return {
-            ...s,
-            filters: null,
-            labels: null
-          }
-        },
-        state: {
-          expandedSegment: null
-        }
-      })
-      setModal(null)
-    }
-  })
+  const patchSegment = usePatchSegment()
+  const createSegment = useCreateSegment()
+  const deleteSegment = useDeleteSegment()
 
   if (!user.loggedIn) {
     return null
@@ -153,7 +35,7 @@ export const RoutelessSegmentModals = () => {
 
   return (
     <>
-      {modal === 'update' && expandedSegment && (
+      {modal?.type === 'update-segment' && expandedSegment && (
         <UpdateSegmentModal
           user={user}
           siteSegmentsAvailable={site.siteSegmentsAvailable}
@@ -179,12 +61,14 @@ export const RoutelessSegmentModals = () => {
           reset={patchSegment.reset}
         />
       )}
-      {modal === 'create' && (
+      {modal?.type === 'create-segment' && (
         <CreateSegmentModal
           user={user}
           siteSegmentsAvailable={site.siteSegmentsAvailable}
-          namePlaceholder={getSegmentNamePlaceholder(dashboardState)}
-          segment={expandedSegment ?? undefined}
+          suggestedName={getSegmentNamePlaceholder(
+            modal.segment?.segment_data ?? dashboardState
+          )}
+          segment={modal.segment}
           onClose={() => {
             setModal(null)
             createSegment.reset()
@@ -193,7 +77,7 @@ export const RoutelessSegmentModals = () => {
             createSegment.mutate({
               name,
               type,
-              segment_data: {
+              segment_data: modal.segment?.segment_data ?? {
                 filters: dashboardState.filters,
                 labels: dashboardState.labels
               }
@@ -204,9 +88,9 @@ export const RoutelessSegmentModals = () => {
           reset={createSegment.reset}
         />
       )}
-      {modal === 'delete' && expandedSegment && (
+      {modal?.type === 'delete-segment' && (
         <DeleteSegmentModal
-          segment={expandedSegment}
+          segment={modal.segment}
           onClose={() => {
             setModal(null)
             deleteSegment.reset()

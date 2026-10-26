@@ -151,33 +151,6 @@ defmodule Plausible.ConfigTest do
              ]
     end
 
-    test "Bamboo.SMTPAdapter" do
-      env = [
-        {"MAILER_ADAPTER", "Bamboo.SMTPAdapter"},
-        {"SMTP_HOST_ADDR", "localhost"},
-        {"SMTP_HOST_PORT", "2525"},
-        {"SMTP_USER_NAME", "neo"},
-        {"SMTP_USER_PWD", "one"},
-        {"SMTP_HOST_SSL_ENABLED", "true"},
-        {"SMTP_RETRIES", "3"},
-        {"SMTP_MX_LOOKUPS_ENABLED", "true"}
-      ]
-
-      assert get_in(runtime_config(env), [:plausible, Plausible.Mailer]) == [
-               {:adapter, Bamboo.SMTPAdapter},
-               {:server, "localhost"},
-               {:hostname, "localhost"},
-               {:port, "2525"},
-               {:username, "neo"},
-               {:password, "one"},
-               {:tls, :if_available},
-               {:allowed_tls_versions, [:tlsv1, :"tlsv1.1", :"tlsv1.2"]},
-               {:ssl, true},
-               {:retries, "3"},
-               {:no_mx_lookups, true}
-             ]
-    end
-
     test "Bamboo.Mua (no config)" do
       env = [{"MAILER_ADAPTER", "Bamboo.Mua"}]
 
@@ -683,12 +656,16 @@ defmodule Plausible.ConfigTest do
 
       config = runtime_config(env)
 
-      assert [vault_key: vault_key] = get_in(config, [:plausible, Plausible.Auth.TOTP])
+      assert keys = get_in(config, [:plausible, Plausible.Auth.TOTP])
+      vault_key = keys[:vault_key]
+      fallback_vault_key = keys[:fallback_vault_key]
       assert byte_size(vault_key) == 32
 
       # make sure it doesn't change between releases
       assert vault_key ==
                "\x95\x9C\x05\x9A\xCD\xE4\xEF\xDDH\xFB\xCA\xD5o\xD1z\xCCTǐ\xBC\"J\xF8:\xFAs\xCA\x0Fo\x10\x9B\x84"
+
+      assert vault_key == fallback_vault_key
     end
 
     test "can be Base64-encoded 32 bytes (with padding)" do
@@ -700,9 +677,12 @@ defmodule Plausible.ConfigTest do
 
       config = runtime_config(env)
 
-      assert [vault_key: vault_key] = get_in(config, [:plausible, Plausible.Auth.TOTP])
+      assert keys = get_in(config, [:plausible, Plausible.Auth.TOTP])
+      vault_key = keys[:vault_key]
+      fallback_vault_key = keys[:fallback_vault_key]
       assert byte_size(vault_key) == 32
       assert vault_key == Base.decode64!("dx2W6PNd/QIC6IyYVWMEaG2fI8/5WVylryM3mRaOpAo=")
+      assert vault_key == fallback_vault_key
     end
 
     test "fails on invalid key length" do

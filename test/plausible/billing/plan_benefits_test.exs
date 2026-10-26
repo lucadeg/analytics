@@ -7,12 +7,13 @@ defmodule Plausible.Billing.PlanBenefitsTest do
     test "returns v5 Starter plan benefits" do
       assert PlanBenefits.for_starter(get_10k_plan(5, :starter)) == [
                "One site",
-               "3 years of data retention",
+               "No retention limit",
                "Intuitive, fast and privacy-friendly dashboard",
                "Email/Slack reports",
                "Google Analytics import",
                "Goals and custom events",
-               "Saved Segments"
+               "Saved Segments",
+               "Annotations"
              ]
     end
   end
@@ -28,7 +29,8 @@ defmodule Plausible.Billing.PlanBenefitsTest do
                "Team Management",
                "Shared Links",
                "Embedded Dashboards",
-               "Shared Segments"
+               "Shared Segments",
+               "Shared Annotations"
              ]
     end
 
@@ -53,11 +55,13 @@ defmodule Plausible.Billing.PlanBenefitsTest do
                  "Up to 50 sites",
                  "Unlimited team members",
                  "Team Management",
+                 "No retention limit",
                  "Saved Segments",
+                 "Annotations",
                  "Goals and custom events",
                  "Custom Properties",
                  "Stats API (600 requests per hour)",
-                 "Looker Studio Connector",
+                 "Data Studio Connector",
                  "Shared Links",
                  "Embedded Dashboards"
                ]
@@ -75,12 +79,11 @@ defmodule Plausible.Billing.PlanBenefitsTest do
                "Everything in Growth",
                "Up to 10 sites",
                "Up to 10 team members",
-               "5 years of data retention",
                "Custom Properties",
                "Stats API (600 requests per hour)",
-               "Looker Studio Connector",
+               "Data Studio Connector",
                "Ecommerce revenue attribution",
-               "Funnels",
+               "Funnels and user journeys",
                "Consolidated View"
              ]
     end
@@ -94,13 +97,13 @@ defmodule Plausible.Billing.PlanBenefitsTest do
                "Everything in Growth",
                "Up to 50 sites",
                "Up to 10 team members",
-               "5 years of data retention",
                "Custom Properties",
                "Ecommerce revenue attribution",
-               "Funnels",
+               "Funnels and user journeys",
                "Stats API (600 requests per hour)",
-               "Looker Studio Connector",
+               "Data Studio Connector",
                "Shared Segments",
+               "Shared Annotations",
                "Consolidated View"
              ]
     end
@@ -121,8 +124,9 @@ defmodule Plausible.Billing.PlanBenefitsTest do
                ) == [
                  "Everything in Growth",
                  "Ecommerce revenue attribution",
-                 "Funnels",
+                 "Funnels and user journeys",
                  "Shared Segments",
+                 "Shared Annotations",
                  "Consolidated View"
                ]
       end
@@ -146,7 +150,6 @@ defmodule Plausible.Billing.PlanBenefitsTest do
                "Single Sign-On (SSO)",
                "Managed Proxy",
                "Scheduled raw event data exports",
-               "5+ years of data retention",
                "Priority support"
              ]
     end
@@ -167,7 +170,6 @@ defmodule Plausible.Billing.PlanBenefitsTest do
                "Single Sign-On (SSO)",
                "Managed Proxy",
                "Scheduled raw event data exports",
-               "5+ years of data retention",
                "Priority support"
              ]
     end

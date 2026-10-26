@@ -33,7 +33,7 @@ defmodule Plausible.Stats.Exploration do
         }
 
   @max_steps 20
-  @max_candidates 20
+  @max_candidates 50
 
   @next_steps_defaults [
     search_term: "",
@@ -94,127 +94,6 @@ defmodule Plausible.Stats.Exploration do
     |> to_funnel(journey)
     |> then(&{:ok, &1})
   end
-
-  @doc """
-  Builds a "teaser" funnel by greedily selecting steps.
-
-  We currently don't know what the "featured" funnel might be,
-  but blindly following the most visited cascade, oftentimes results with
-  a repetitive back and forth between two pages.
-
-  Therefore we start with the most visited entry and 
-  iteratively pick the most popular next step, that hasn't appeared 
-  in the journey yet. Trailing slashes are ignored when 
-  comparing pathnames (e.g. `/foo` and `/foo/` are treated as
-  the same page - we should probably do that when deduplicating step candidates too).
-
-  ## Options
-
-    * `:max_steps` - maximum number of funnel steps to build (default: `6`)
-    * `:max_candidates` - passed to `next_steps/3`, limiting
-      how many candidate next steps are fetched per step (default: `10`)
-    * `:include_wildcard?` - passed to `next_steps/3`, deciding whether
-      to include implicit wildcard pathnames in suggestions or not
-      (default: true)
-  """
-  @spec featured_funnel(Plausible.Site.t(), Query.t(), keyword()) ::
-          {:ok, %{funnel: [funnel_step()], candidates: [next_step()]}} | {:error, :not_found}
-  def featured_funnel(site, query, opts \\ []) do
-    max_steps = min(Keyword.get(opts, :max_steps, 6), @max_steps)
-    max_candidates = min(Keyword.get(opts, :max_candidates, 10), @max_candidates)
-
-    include_wildcard? =
-      Keyword.get(
-        opts,
-        :include_wildcard?,
-        Keyword.fetch!(@next_steps_defaults, :include_wildcard?)
-      )
-
-    with {:ok, result} <-
-           build_featured_journey(site, query, max_steps, max_candidates, include_wildcard?),
-         {:ok, funnel} <- journey_funnel(query, result.journey) do
-      {:ok, %{funnel: funnel, candidates: result.candidates}}
-    end
-  end
-
-  defp build_featured_journey(site, query, max_steps, max_candidates, include_wildcard?) do
-    case do_build_journey(
-           site,
-           query,
-           [],
-           [],
-           MapSet.new([{Journey.Step.journey_end_event(), ""}]),
-           max_steps,
-           max_candidates,
-           include_wildcard?
-         ) do
-      %{journey: []} -> {:error, :not_found}
-      result -> {:ok, result}
-    end
-  end
-
-  defp do_build_journey(
-         _site,
-         _query,
-         journey,
-         step_candidates,
-         _seen,
-         max_steps,
-         _max_candidates,
-         _include_wildcard?
-       )
-       when length(journey) >= max_steps do
-    %{journey: journey, candidates: step_candidates}
-  end
-
-  defp do_build_journey(
-         site,
-         query,
-         journey,
-         step_candidates,
-         seen,
-         max_steps,
-         max_candidates,
-         include_wildcard?
-       ) do
-    {:ok, candidates} =
-      next_steps(site, query, journey,
-        max_candidates: max_candidates,
-        include_wildcard?: include_wildcard?
-      )
-
-    case find_unseen_step(candidates, seen) do
-      nil ->
-        %{journey: journey, candidates: step_candidates}
-
-      step ->
-        new_seen = MapSet.put(seen, normalize_step_key(step))
-
-        do_build_journey(
-          site,
-          query,
-          journey ++ [step],
-          step_candidates ++ [candidates],
-          new_seen,
-          max_steps,
-          max_candidates,
-          include_wildcard?
-        )
-    end
-  end
-
-  defp find_unseen_step(candidates, seen) do
-    Enum.find_value(candidates, fn %{step: step} ->
-      if not MapSet.member?(seen, normalize_step_key(step)), do: step
-    end)
-  end
-
-  defp normalize_step_key(%Journey.Step{name: name, pathname: pathname}) do
-    {name, normalize_pathname(pathname)}
-  end
-
-  defp normalize_pathname("/"), do: "/"
-  defp normalize_pathname(pathname), do: String.trim_trailing(pathname, "/")
 
   defp filter_eligible_goals(goals) do
     Enum.reject(goals, fn g ->
@@ -572,7 +451,7 @@ defmodule Plausible.Stats.Exploration do
           pathname: fragment("if(? = 'pageview', ?, '')", e.name, e.pathname),
           timestamp: e.timestamp
         },
-        where: e.name != "engagement"
+        where: e.name != "engagement" and e.revenue_reporting_currency == ""
       )
       |> select_previous(direction)
 
@@ -657,6 +536,12 @@ defmodule Plausible.Stats.Exploration do
             fragment("match(?, ?)", field(s, ^:"pathname#{count}"), ^pattern)
         )
 
+      step.name == Journey.Step.journey_end_event() ->
+        dynamic(
+          [s],
+          field(s, ^:"name#{count}") == ""
+        )
+
       true ->
         dynamic(
           [s],
@@ -675,7 +560,12 @@ defmodule Plausible.Stats.Exploration do
   defp maybe_search(query, search_term) do
     case String.trim(search_term) do
       term when byte_size(term) > 2 ->
-        from(s in query, where: ilike(selected_as(:label), ^"%#{term}%"))
+        from(s in query,
+          where:
+            ilike(selected_as(:label), ^"%#{term}%") or
+              ilike(s.pathname, ^"%#{term}%") or
+              (s.name != "pageview" and ilike(s.name, ^"%#{term}%"))
+        )
 
       _ ->
         query

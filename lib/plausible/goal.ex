@@ -38,8 +38,6 @@ defmodule Plausible.Goal do
   end
 
   @fields [
-            :id,
-            :site_id,
             :event_name,
             :page_path,
             :scroll_threshold,
@@ -56,33 +54,54 @@ defmodule Plausible.Goal do
 
   def max_custom_props_per_goal(), do: @max_custom_props_per_goal
 
+  @special_goals [
+    "404",
+    "Outbound Link: Click",
+    "Cloaked Link: Click",
+    "File Download",
+    "Form: Submission",
+    "WP Search Queries",
+    "WP Form Completions"
+  ]
+
+  def special_goals(), do: @special_goals
+
+  @spec special_goal?(t() | String.t() | nil) :: boolean()
+  def special_goal?(%__MODULE__{event_name: event_name}), do: special_goal?(event_name)
+  def special_goal?(event_name) when is_binary(event_name), do: event_name in @special_goals
+  def special_goal?(_), do: false
+
   def changeset(goal, attrs \\ %{}) do
     goal
     |> cast(attrs, @fields)
-    |> validate_required([:site_id])
-    |> cast_assoc(:site)
-    |> update_leading_slash()
-    |> validate_event_name_and_page_path()
-    |> validate_page_path_for_scroll_goal()
+    |> base_changeset()
     |> maybe_put_display_name()
-    |> validate_change(:custom_props, &validate_custom_props/2)
     |> unique_constraint(:display_name, name: :goals_display_name_unique)
     |> unique_constraint(:event_name, name: :goals_event_config_unique)
     |> unique_constraint([:page_path, :scroll_threshold],
       name: :goals_pageview_config_unique
     )
+    |> check_constraint(:event_name,
+      name: :check_event_name_or_page_path,
+      message: "cannot co-exist with page_path"
+    )
+    |> prevent_currency_change()
+    |> prevent_special_goal_renames()
+  end
+
+  def base_changeset(changeset) do
+    changeset
+    |> update_leading_slash()
+    |> validate_event_name_and_page_path()
+    |> validate_page_path_for_scroll_goal()
+    |> validate_change(:custom_props, &validate_custom_props/2)
     |> validate_length(:event_name, max: @max_event_name_length)
     |> validate_number(:scroll_threshold,
       greater_than_or_equal_to: -1,
       less_than_or_equal_to: 100,
       message: "Should be -1 (missing) or in range [0, 100]"
     )
-    |> check_constraint(:event_name,
-      name: :check_event_name_or_page_path,
-      message: "cannot co-exist with page_path"
-    )
     |> maybe_drop_currency()
-    |> prevent_currency_change()
   end
 
   @spec display_name(t()) :: String.t()
@@ -236,6 +255,35 @@ defmodule Plausible.Goal do
 
       true ->
         []
+    end
+  end
+
+  defp prevent_special_goal_renames(changeset) do
+    if changeset.data.id && special_goal?(changeset.data.event_name) do
+      changeset
+      |> reject_special_goal_field_change(:event_name)
+      |> reject_special_goal_field_change(:display_name)
+    else
+      changeset
+    end
+  end
+
+  defp reject_special_goal_field_change(changeset, :event_name) do
+    if Map.has_key?(changeset.changes, :event_name) do
+      add_error(changeset, :event_name, "cannot be changed for an automated goal")
+    else
+      changeset
+    end
+  end
+
+  defp reject_special_goal_field_change(changeset, :display_name) do
+    new_value = get_change(changeset, :display_name)
+    canonical = changeset.data.event_name
+
+    if new_value && new_value != canonical do
+      add_error(changeset, :display_name, "cannot be changed for an automated goal")
+    else
+      changeset
     end
   end
 

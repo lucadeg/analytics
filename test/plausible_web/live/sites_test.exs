@@ -22,7 +22,7 @@ defmodule PlausibleWeb.Live.SitesTest do
       conn: conn,
       user: user
     } do
-      team2 = new_site().team
+      team2 = new_site().team |> Plausible.Teams.complete_setup()
 
       add_member(team2, user: user, role: :admin)
 
@@ -33,6 +33,11 @@ defmodule PlausibleWeb.Live.SitesTest do
       refute text =~ "You don't have any sites yet"
       assert text =~ "Add your first personal site"
       assert text =~ "Go to team sites"
+
+      assert element_exists?(
+               html,
+               ~s|a[href="/sites?__team=#{team2.identifier}"]|
+             )
     end
 
     test "renders settings link when current team is set", %{user: user, conn: conn} do
@@ -147,6 +152,77 @@ defmodule PlausibleWeb.Live.SitesTest do
   end
 
   on_ee do
+    describe "pending setup badge and verification query parameter" do
+      @tag :ee_only
+      test "shows for a site with onboarding_status :new_site", %{conn: conn, user: user} do
+        site = new_site(owner: user, onboarding_status: :new_site)
+
+        {:ok, _lv, html} = live(conn, "/sites")
+
+        site_card = text_of_element(html, "li[data-domain=\"#{site.domain}\"]")
+        assert site_card =~ "Setup pending"
+
+        dashboard_link_href =
+          text_of_attr(html, "li[data-domain=\"#{site.domain}\"] h3 a", "href")
+
+        assert dashboard_link_href =~ "verify_installation=true"
+
+        assert Repo.reload!(site).onboarding_status == :new_site
+      end
+
+      @tag :ee_only
+      test "advances onboarding_status (and hides the badge) when the site already has visitors, before its dashboard has ever been loaded",
+           %{conn: conn, user: user} do
+        site = new_site(owner: user, onboarding_status: :new_site)
+        populate_stats(site, [build(:pageview)])
+
+        {:ok, _lv, html} = live(conn, "/sites")
+
+        site_card = text_of_element(html, "li[data-domain=\"#{site.domain}\"]")
+        refute site_card =~ "Setup pending"
+
+        dashboard_link_href =
+          text_of_attr(html, "li[data-domain=\"#{site.domain}\"] h3 a", "href")
+
+        refute dashboard_link_href =~ "verify_installation=true"
+
+        assert Repo.reload!(site).onboarding_status == :first_pageview
+      end
+
+      for status <- [:verification_succeeded, :first_pageview, :completed] do
+        @tag :ee_only
+        test "does not show once onboarding_status has moved to #{status} (even with stats_start_date reset)",
+             %{conn: conn, user: user} do
+          site = new_site(owner: user, onboarding_status: unquote(status), stats_start_date: nil)
+
+          {:ok, _lv, html} = live(conn, "/sites")
+
+          site_card = text_of_element(html, "li[data-domain=\"#{site.domain}\"]")
+          refute site_card =~ "Setup pending"
+
+          dashboard_link_href =
+            text_of_attr(html, "li[data-domain=\"#{site.domain}\"] h3 a", "href")
+
+          refute dashboard_link_href =~ "verify_installation=true"
+        end
+      end
+
+      @tag :ce_build_only
+      test "never shows on CE", %{conn: conn, user: user} do
+        site = new_site(owner: user, onboarding_status: :new_site)
+
+        {:ok, _lv, html} = live(conn, "/sites")
+
+        site_card = text_of_element(html, "li[data-domain=\"#{site.domain}\"]")
+        refute site_card =~ "Setup pending"
+
+        dashboard_link_href =
+          text_of_attr(html, "li[data-domain=\"#{site.domain}\"] h3 a", "href")
+
+        refute dashboard_link_href =~ "verify_installation=true"
+      end
+    end
+
     describe "consolidated views appearance" do
       test "consolidated view shows up", %{conn: conn, user: user} do
         new_site(owner: user)
@@ -167,6 +243,16 @@ defmodule PlausibleWeb.Live.SitesTest do
         assert element_exists?(html, ~s|[data-test-id="consolidated-view-card"]|)
         assert element_exists?(html, ~s|[data-test-id="consolidated-view-stats-loaded"]|)
         assert element_exists?(html, ~s|[data-test-id="consolidated-view-chart-loaded"]|)
+
+        assert element_exists?(
+                 html,
+                 ~s|[data-test-id="consolidated-view-card"] a[aria-label="Site settings"][href$="/settings/general"]|
+               )
+
+        refute element_exists?(
+                 html,
+                 ~s|[data-test-id="consolidated-view-card"] [data-test-id="site-card-pin-button"]|
+               )
       end
 
       test "consolidated view presents consolidated stats", %{conn: conn, user: user} do
@@ -571,16 +657,62 @@ defmodule PlausibleWeb.Live.SitesTest do
     end
   end
 
-  describe "pinning" do
-    test "renders pin site option when site not pinned", %{conn: conn, user: user} do
+  describe "pin button visibility" do
+    test "is not rendered when the user has one site", %{conn: conn, user: user} do
       site = new_site(owner: user)
 
       {:ok, _lv, html} = live(conn, "/sites")
 
-      assert text_of_element(
+      assert element_exists?(html, ~s/li[data-domain="#{site.domain}"]/)
+      refute element_exists?(html, ~s/[data-test-id="site-card-pin-button"]/)
+    end
+
+    test "is rendered for a site pinned before it became the only one, once another is added",
+         %{conn: conn, user: user} do
+      site = new_site(owner: user)
+      assert {:ok, _} = Plausible.Sites.toggle_pin(user, site)
+
+      {:ok, _lv, html} = live(conn, "/sites")
+      refute element_exists?(html, ~s/[data-test-id="site-card-pin-button"]/)
+
+      new_site(owner: user)
+      {:ok, _lv, html} = live(conn, "/sites")
+
+      assert text_of_attr(
                html,
-               ~s/li[data-domain="#{site.domain}"] button[phx-value-domain]/
-             ) == "Pin site"
+               ~s/li[data-domain="#{site.domain}"] [data-test-id="site-card-pin-button"]/,
+               "aria-label"
+             ) == "Unpin site"
+    end
+
+    test "stays rendered when a search matches one of several sites", %{conn: conn, user: user} do
+      site = new_site(owner: user, domain: "unique-match.example.com")
+      new_site(owner: user)
+
+      {:ok, _lv, html} = live(conn, "/sites?filter_text=unique-match")
+
+      assert element_exists?(
+               html,
+               ~s/li[data-domain="#{site.domain}"] [data-test-id="site-card-pin-button"]/
+             )
+    end
+  end
+
+  describe "pinning" do
+    setup %{user: user} do
+      new_site(owner: user)
+      :ok
+    end
+
+    test "renders pin site button when site not pinned", %{conn: conn, user: user} do
+      site = new_site(owner: user)
+
+      {:ok, _lv, html} = live(conn, "/sites")
+
+      button_selector = ~s/li[data-domain="#{site.domain}"] [data-test-id="site-card-pin-button"]/
+
+      assert text_of_attr(html, button_selector, "aria-label") == "Pin site"
+      assert text_of_element(html, "li[data-domain=\"#{site.domain}\"]") =~ "Pin site"
     end
 
     test "site state changes when pin toggled", %{conn: conn, user: user} do
@@ -589,7 +721,7 @@ defmodule PlausibleWeb.Live.SitesTest do
       {:ok, lv, _html} = live(conn, "/sites")
 
       button_selector =
-        ~s/button[phx-value-domain="#{site.domain}"][data-test-id="ellipsis-menu-pin-item"]/
+        ~s/button[phx-value-domain="#{site.domain}"][data-test-id="site-card-pin-button"]/
 
       html =
         lv
@@ -598,7 +730,7 @@ defmodule PlausibleWeb.Live.SitesTest do
 
       assert html =~ "Site pinned"
 
-      assert text_of_element(html, button_selector) == "Unpin site"
+      assert text_of_attr(html, button_selector, "aria-label") == "Unpin site"
 
       html =
         lv
@@ -607,7 +739,7 @@ defmodule PlausibleWeb.Live.SitesTest do
 
       assert html =~ "Site unpinned"
 
-      assert text_of_element(html, button_selector) == "Pin site"
+      assert text_of_attr(html, button_selector, "aria-label") == "Pin site"
     end
 
     test "shows error when pins limit hit", %{conn: conn, user: user} do
@@ -620,7 +752,7 @@ defmodule PlausibleWeb.Live.SitesTest do
 
       {:ok, lv, _html} = live(conn, "/sites")
 
-      button_selector = ~s/li[data-domain="#{site.domain}"] button[phx-value-domain]/
+      button_selector = ~s/li[data-domain="#{site.domain}"] [data-test-id="site-card-pin-button"]/
 
       html =
         lv
@@ -641,64 +773,101 @@ defmodule PlausibleWeb.Live.SitesTest do
       refute Repo.get_by(Plausible.Site.UserPreference, user_id: user.id, site_id: site.id)
     end
 
-    test "pin icon is shown on site card when site is pinned", %{conn: conn, user: user} do
+    test "pin icon is filled on site card when site is pinned", %{conn: conn, user: user} do
       site = new_site(owner: user)
       assert {:ok, _} = Plausible.Sites.toggle_pin(user, site)
 
       {:ok, _lv, html} = live(conn, "/sites")
 
-      assert element_exists?(
+      assert text_of_attr(
                html,
-               ~s/li[data-domain="#{site.domain}"] [data-test-id="site-card-pin-icon"]/
-             )
+               ~s/li[data-domain="#{site.domain}"] [data-test-id="site-card-pin-button"] svg/,
+               "fill"
+             ) == "currentColor"
     end
 
-    test "pin icon is not shown on site card when site is not pinned", %{conn: conn, user: user} do
+    test "pin icon is outlined on site card when site is not pinned", %{conn: conn, user: user} do
       site = new_site(owner: user)
 
       {:ok, _lv, html} = live(conn, "/sites")
 
-      refute element_exists?(
+      assert text_of_attr(
                html,
-               ~s/li[data-domain="#{site.domain}"] [data-test-id="site-card-pin-icon"]/
-             )
+               ~s/li[data-domain="#{site.domain}"] [data-test-id="site-card-pin-button"] svg/,
+               "fill"
+             ) == "none"
     end
 
-    test "pin icon appears on site card after pinning", %{conn: conn, user: user} do
+    test "billing role member can pin a site with the pin button", %{conn: conn, user: user} do
       site = new_site(owner: user)
+      team = site.team |> Plausible.Teams.complete_setup()
+      billing_user = add_member(team, role: :billing)
 
-      {:ok, lv, _html} = live(conn, "/sites")
+      {:ok, conn: conn} = log_in(%{user: billing_user, conn: conn})
+
+      {:ok, lv, _html} = live(conn, "/sites?__team=#{team.identifier}")
 
       button_selector =
-        ~s/button[phx-value-domain="#{site.domain}"][data-test-id="ellipsis-menu-pin-item"]/
+        ~s/button[phx-value-domain="#{site.domain}"][data-test-id="site-card-pin-button"]/
 
-      lv |> element(button_selector) |> render_click()
+      html = lv |> element(button_selector) |> render_click()
 
-      html = render(lv)
-
-      assert element_exists?(
-               html,
-               ~s/li[data-domain="#{site.domain}"] [data-test-id="site-card-pin-icon"]/
-             )
+      assert html =~ "Site pinned"
     end
 
-    test "pin icon disappears from site card after unpinning", %{conn: conn, user: user} do
+    test "billing role member does not see the site settings button", %{
+      conn: conn,
+      user: user
+    } do
       site = new_site(owner: user)
-      assert {:ok, _} = Plausible.Sites.toggle_pin(user, site)
+      team = site.team |> Plausible.Teams.complete_setup()
+      billing_user = add_member(team, role: :billing)
 
-      {:ok, lv, _html} = live(conn, "/sites")
+      {:ok, conn: conn} = log_in(%{user: billing_user, conn: conn})
 
-      button_selector =
-        ~s/[phx-value-domain="#{site.domain}"][data-test-id="site-card-pin-icon"]/
+      {:ok, _lv, html} = live(conn, "/sites?__team=#{team.identifier}")
 
-      lv |> element(button_selector) |> render_click()
+      settings_selector =
+        ~s|li[data-domain="#{site.domain}"] a[href$="/settings/general"]|
 
-      html = render(lv)
+      refute element_exists?(html, settings_selector)
+    end
+  end
 
-      refute element_exists?(
-               html,
-               button_selector
-             )
+  describe "site settings button visibility" do
+    @allowed_to_see_settings [:owner, :editor, :admin]
+    for role <- @allowed_to_see_settings do
+      test "#{role} can see settings", %{conn: conn, user: user} do
+        site = new_site(owner: user)
+        team = site.team |> Plausible.Teams.complete_setup()
+        member = add_member(team, role: unquote(role))
+
+        {:ok, conn: conn} = log_in(%{user: member, conn: conn})
+
+        {:ok, _lv, html} = live(conn, "/sites?__team=#{team.identifier}")
+
+        assert element_exists?(
+                 html,
+                 ~s|li[data-domain="#{site.domain}"] a[href$="/settings/general"]|
+               )
+      end
+    end
+
+    for role <- Plausible.Teams.Membership.roles() -- @allowed_to_see_settings do
+      test "#{role} can't see settings", %{conn: conn, user: user} do
+        site = new_site(owner: user)
+        team = site.team |> Plausible.Teams.complete_setup()
+        member = add_member(team, role: :viewer)
+
+        {:ok, conn: conn} = log_in(%{user: member, conn: conn})
+
+        {:ok, _lv, html} = live(conn, "/sites?__team=#{team.identifier}")
+
+        refute element_exists?(
+                 html,
+                 ~s|li[data-domain="#{site.domain}"] a[href$="/settings/general"]|
+               )
+      end
     end
   end
 

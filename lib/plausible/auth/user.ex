@@ -1,4 +1,8 @@
 defmodule Plausible.Auth.User do
+  @moduledoc """
+  User schema.
+  """
+
   use Plausible
   use Ecto.Schema
   import Ecto.Changeset
@@ -40,6 +44,7 @@ defmodule Plausible.Auth.User do
     # Fields for TOTP authentication. See `Plausible.Auth.TOTP`.
     field :totp_enabled, :boolean, default: false
     field :totp_secret, Plausible.Auth.TOTP.EncryptedBinary
+    field :totp_secret_fallback, Plausible.Auth.TOTP.FallbackEncryptedBinary
     field :totp_token, :string
     field :totp_last_used_at, :naive_datetime
 
@@ -74,9 +79,10 @@ defmodule Plausible.Auth.User do
   def new(attrs \\ %{}) do
     %Plausible.Auth.User{}
     |> cast(attrs, @required)
-    |> validate_required(@required)
+    |> validate_required(:name, message: "Please enter your name")
+    |> validate_required(:email, message: "Please enter your email")
+    |> validate_required(:password, message: "Please enter a password")
     |> validate_password_length()
-    |> validate_confirmation(:password, required: true)
     |> validate_password_strength()
     |> hash_password()
     |> set_email_verification_status()

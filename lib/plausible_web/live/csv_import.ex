@@ -5,7 +5,6 @@ defmodule PlausibleWeb.Live.CSVImport do
 
   use PlausibleWeb, :live_view
 
-  require Plausible.Imported.SiteImport
   alias Plausible.Imported.CSVImporter
   alias Plausible.Imported
 
@@ -122,7 +121,7 @@ defmodule PlausibleWeb.Live.CSVImport do
 
   defp confirm_button(assigns) do
     ~H"""
-    <.button type="submit" disabled={not @can_confirm?} class="w-full">
+    <.button type="submit" disabled={not @can_confirm?} class="w-full mt-6">
       <%= if @date_range do %>
         Confirm import <.dates range={@date_range} />
       <% else %>
@@ -222,7 +221,7 @@ defmodule PlausibleWeb.Live.CSVImport do
       )
 
     redirect_to =
-      Routes.site_path(socket, :settings_imports_exports, site.domain)
+      ~p"/#{site.domain}/settings/imports-exports"
 
     {:noreply, redirect(socket, to: redirect_to)}
   end

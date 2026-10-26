@@ -3,8 +3,8 @@ defmodule PlausibleWeb.LayoutView do
   use Plausible
 
   alias Plausible.Teams
-  alias PlausibleWeb.Components.Billing.Notice
   alias PlausibleWeb.Components.Layout
+  alias PlausibleWeb.Layouts
 
   require Plausible.Billing
 
@@ -37,19 +37,15 @@ defmodule PlausibleWeb.LayoutView do
     end
   end
 
-  def home_dest(conn) do
-    if conn.assigns[:current_user] do
-      "/sites"
-    else
-      "/"
-    end
+  def home_dest(current_user) do
+    if current_user, do: "/sites", else: "/"
   end
 
   def logo_path(filename) do
     if ee?() do
-      Path.join("/images/ee/", filename)
+      ~p"/images/ee/#{filename}"
     else
-      Path.join("/images/ce/", filename)
+      ~p"/images/ce/#{filename}"
     end
   end
 
@@ -162,16 +158,14 @@ defmodule PlausibleWeb.LayoutView do
     end
   end
 
-  attr :conn, :map, required: true
   attr :teams, :list, required: true
   attr :my_team, :any, default: nil
   attr :current_team, :any, default: nil
-  attr :more_teams?, :boolean, required: true
 
   def team_switcher(assigns) do
     teams = assigns[:teams]
 
-    if teams && length(teams) > 0 do
+    if teams && teams != [] do
       current_team = assigns[:current_team]
       my_team = assigns[:my_team]
       current_included? = current_team && Enum.any?(teams, &(&1.id == current_team.id))
@@ -192,36 +186,41 @@ defmodule PlausibleWeb.LayoutView do
         end
 
       selected_id = current_team && current_team.id
+      {pinned_team, other_teams} = Enum.split_with(teams, &(&1.id == selected_id))
 
       assigns =
         assigns
-        |> assign(:teams, teams)
-        |> assign(:selected_id, selected_id)
+        |> assign(:pinned_team, List.first(pinned_team))
+        |> assign(:other_teams, other_teams)
 
       ~H"""
       <.dropdown_item>
         <div class="text-xs text-gray-500 dark:text-gray-400">Teams</div>
       </.dropdown_item>
       <.dropdown_item
-        :for={team <- @teams}
-        href={Routes.site_path(@conn, :index, __team: team.identifier)}
+        :if={@pinned_team}
+        href={~p"/sites?#{[__team: @pinned_team.identifier]}"}
       >
-        <p
-          class={[
-            if(team.id == @selected_id,
-              do: "border-r-4 border-indigo-400 font-bold",
-              else: "font-medium"
-            ),
-            "truncate text-gray-900 dark:text-gray-100 pr-4"
-          ]}
-          role="none"
+        <div class="flex items-center justify-between gap-2" role="none">
+          <p class="font-semibold truncate min-w-0 text-gray-900 dark:text-gray-100">
+            {Teams.name(@pinned_team)}
+          </p>
+          <Heroicons.check class="size-4 shrink-0 stroke-2 text-gray-500 dark:text-gray-400" />
+        </div>
+      </.dropdown_item>
+      <div class="max-h-[200px] overflow-y-auto">
+        <.dropdown_item
+          :for={team <- @other_teams}
+          href={~p"/sites?#{[__team: team.identifier]}"}
         >
-          {Teams.name(team)}
-        </p>
-      </.dropdown_item>
-      <.dropdown_item :if={@more_teams?} href={Routes.auth_path(@conn, :select_team)}>
-        Switch to Another Team
-      </.dropdown_item>
+          <p
+            class="font-medium truncate text-gray-900 dark:text-gray-100 pr-4"
+            role="none"
+          >
+            {Teams.name(team)}
+          </p>
+        </.dropdown_item>
+      </div>
       """
     else
       ~H""
@@ -239,11 +238,6 @@ defmodule PlausibleWeb.LayoutView do
       days when days == 0 ->
         "Trial ends today"
     end
-  end
-
-  @doc "http://blog.plataformatec.com.br/2018/05/nested-layouts-with-phoenix/"
-  def render_layout(layout, assigns, do: content) do
-    render(layout, Map.put(assigns, :inner_layout, content))
   end
 
   def current_tab?(_, nil) do

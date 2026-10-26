@@ -2,7 +2,7 @@ defmodule PlausibleWeb.Api.ExternalStatsController do
   use PlausibleWeb, :controller
   use Plausible.Repo
   use PlausibleWeb.Plugs.ErrorHandler
-  alias Plausible.Stats.{Query, Metrics, Filters}
+  alias Plausible.Stats.{Query, Metrics, Filters, Interval, Legacy}
 
   def realtime_visitors(conn, _params) do
     site = conn.assigns.site
@@ -20,7 +20,7 @@ defmodule PlausibleWeb.Api.ExternalStatsController do
          :ok <- validate_filters(site, query.filters),
          {:ok, metrics} <- parse_and_validate_metrics(params, query),
          :ok <- ensure_custom_props_access(site, query) do
-      %{results: results, meta: meta} = Plausible.Stats.aggregate(site, query, metrics)
+      %{results: results, meta: meta} = Legacy.Aggregate.aggregate(site, query, metrics)
 
       payload = maybe_add_warning(%{results: results}, meta)
 
@@ -40,11 +40,10 @@ defmodule PlausibleWeb.Api.ExternalStatsController do
          :ok <- validate_filters(site, query.filters),
          {:ok, metrics} <- parse_and_validate_metrics(params, query),
          {:ok, limit} <- validate_or_default_limit(params),
+         {:ok, page} <- validate_or_default_page(params),
          :ok <- ensure_custom_props_access(site, query) do
-      page = String.to_integer(Map.get(params, "page", "1"))
-
       %{results: results, meta: meta} =
-        Plausible.Stats.breakdown(site, query, metrics, {limit, page})
+        Legacy.Breakdown.breakdown(site, query, metrics, {limit, page})
 
       payload = maybe_add_warning(%{results: results}, meta)
 
@@ -87,6 +86,18 @@ defmodule PlausibleWeb.Api.ExternalStatsController do
 
   @default_breakdown_limit 100
   defp validate_or_default_limit(_), do: {:ok, @default_breakdown_limit}
+
+  defp validate_or_default_page(%{"page" => page}) do
+    case Integer.parse(page) do
+      {page, ""} when page > 0 ->
+        {:ok, page}
+
+      _ ->
+        {:error, "Please provide page as a number greater than 0."}
+    end
+  end
+
+  defp validate_or_default_page(_), do: {:ok, 1}
 
   defp parse_and_validate_metrics(params, query) do
     metrics =
@@ -258,7 +269,9 @@ defmodule PlausibleWeb.Api.ExternalStatsController do
          :ok <- validate_filters(site, query.filters),
          {:ok, metrics} <- parse_and_validate_metrics(params, query),
          :ok <- ensure_custom_props_access(site, query) do
-      {results, meta} = Plausible.Stats.timeseries(site, query, metrics)
+      time_dimension = interval_to_time_dimension(Map.get(params, "interval"), query)
+      query = Query.set(query, dimensions: [time_dimension])
+      {results, meta} = Legacy.Timeseries.timeseries(site, query, metrics)
 
       payload =
         case meta[:imports_warning] do
@@ -326,6 +339,19 @@ defmodule PlausibleWeb.Api.ExternalStatsController do
   end
 
   defp validate_interval(_), do: :ok
+
+  @time_dimensions %{
+    "minute" => "time:minute",
+    "hour" => "time:hour",
+    "day" => "time:day",
+    "week" => "time:week",
+    "month" => "time:month"
+  }
+
+  defp interval_to_time_dimension(interval, query) do
+    interval = interval || Interval.default_for_query(query)
+    Map.fetch!(@time_dimensions, interval)
+  end
 
   defp validate_filters(site, filters) do
     Enum.reduce_while(filters, :ok, fn filter, _ ->

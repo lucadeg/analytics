@@ -1,14 +1,15 @@
 defmodule Plausible.Billing do
   @moduledoc """
-  Handles Plausible billing subscription lifecycle events (creation, update, cancellation, payment success), 
-  Paddle API, team assignment, and notification logic. Provides helpers for formatting prices, 
+  Handles Plausible billing subscription lifecycle events (creation, update, cancellation, payment success),
+  Paddle API, team assignment, and notification logic. Provides helpers for formatting prices,
   managing subscription status, and updating team-related billing state.
   """
   use Plausible
   use Plausible.Repo
-  require Plausible.Billing.Subscription.Status
+
   alias Plausible.Auth
-  alias Plausible.Billing.Subscription
+  alias Plausible.Billing.{EnterprisePlan, Subscription, Subscriptions}
+  alias Plausible.TeamDeletionSchedules
   alias Plausible.Teams
 
   defmacro allowed_roles(), do: [:owner, :billing]
@@ -37,6 +38,66 @@ defmodule Plausible.Billing do
     end)
   end
 
+  @doc """
+  Creates a subscription for a custom plan without Paddle checkout (for example, paid by bank transfer).
+
+  The enterprise plan's `paddle_plan_id` is rewritten to a conventional
+  `manual-subscription` ID, which is also what the subscription gets, so the two
+  stay linked. `paddle_subscription_id` is left empty. See
+  `Subscription.manual_changeset/2` for the remaining values.
+
+  ## Limitations for creating a manual subscription:
+
+  * Only the team's latest enterprise plan can be manually subscribed to
+  * A team can only have one manual subscription
+  * Teams with a resumable (active, past due or paused) Paddle subscription must have it cancelled first.
+  * The enterprise plan must have yearly billing
+  """
+  def create_manual_subscription(team, %{id: plan_id} = enterprise_plan) do
+    subscription =
+      Repo.one(from(s in Teams.last_subscription_query(), where: s.team_id == ^team.id))
+
+    already_manual? = Subscription.manual_subscription?(subscription)
+
+    already_subscriber? =
+      Subscriptions.resumable?(subscription) and subscription.paddle_plan_id != "free_10k"
+
+    latest_plan? = match?(%{id: ^plan_id}, latest_enterprise_plan(team))
+
+    cond do
+      already_manual? -> {:error, :already_manual}
+      already_subscriber? -> {:error, :active_subscription}
+      not latest_plan? -> {:error, :not_latest_plan}
+      enterprise_plan.billing_interval != :yearly -> {:error, :not_yearly}
+      true -> do_create_manual_subscription(team, enterprise_plan)
+    end
+  end
+
+  defp do_create_manual_subscription(team, enterprise_plan) do
+    Repo.transaction(fn ->
+      with {:ok, _plan} <-
+             Repo.update(EnterprisePlan.manual_subscription_changeset(enterprise_plan)),
+           {:ok, subscription} <- Repo.insert(Subscription.manual_changeset(team)) do
+        after_subscription_update(subscription)
+      else
+        {:error, changeset} -> Repo.rollback(changeset)
+      end
+    end)
+  end
+
+  @doc """
+  Returns the team's most recently created enterprise plan, or `nil` if it has none.
+  """
+  def latest_enterprise_plan(team) do
+    Repo.one(
+      from(ep in Plausible.Billing.EnterprisePlan,
+        where: ep.team_id == ^team.id,
+        order_by: [desc: ep.inserted_at, desc: ep.id],
+        limit: 1
+      )
+    )
+  end
+
   def change_plan_preview(subscription, new_plan_id) do
     case paddle_api().update_subscription_preview(
            subscription.paddle_subscription_id,
@@ -58,10 +119,22 @@ defmodule Plausible.Billing do
       |> format_subscription()
       |> add_last_bill_date(params)
 
-    team
-    |> Subscription.create_changeset(subscription_params)
-    |> Repo.insert!()
-    |> after_subscription_update()
+    changeset = Subscription.create_changeset(team, subscription_params)
+
+    case Repo.insert(changeset,
+           on_conflict: :nothing,
+           conflict_target: :paddle_subscription_id
+         ) do
+      {:ok, %{id: nil}} ->
+        handle_conflict(
+          "subscription_created",
+          subscription_params.paddle_subscription_id,
+          changeset
+        )
+
+      {:ok, subscription} ->
+        after_subscription_update(subscription)
+    end
   end
 
   defp handle_subscription_updated(params) do
@@ -136,6 +209,7 @@ defmodule Plausible.Billing do
         |> Repo.preload(:team)
 
       Plausible.Teams.update_accept_traffic_until(subscription.team)
+      TeamDeletionSchedules.cancel_for_team(subscription.team)
 
       subscription
     end
@@ -241,6 +315,7 @@ defmodule Plausible.Billing do
     |> Plausible.Teams.remove_grace_period()
     |> Plausible.Teams.maybe_reset_next_upgrade_override()
     |> tap(&Plausible.Billing.SiteLocker.update_for/1)
+    |> tap(&TeamDeletionSchedules.cancel_for_team/1)
     |> maybe_adjust_api_key_limits()
   end
 
@@ -261,11 +336,41 @@ defmodule Plausible.Billing do
     team
   end
 
+  defp handle_conflict(webhook_type, paddle_subscription_id, changeset) do
+    existing =
+      Repo.get_by!(Subscription,
+        paddle_subscription_id: paddle_subscription_id
+      )
+
+    diff = changeset_diff(changeset, existing)
+
+    if diff != %{} do
+      Sentry.capture_message(
+        "Duplicate #{webhook_type} webhook for paddle_subscription_id=#{existing.paddle_subscription_id}.",
+        extra: %{
+          paddle_subscription_id: existing.paddle_subscription_id,
+          team_id: existing.team_id,
+          diff: diff
+        }
+      )
+    end
+
+    existing
+  end
+
+  defp changeset_diff(%Ecto.Changeset{changes: changes}, existing) do
+    for {key, incoming_val} <- changes,
+        not is_struct(incoming_val, Ecto.Changeset),
+        existing_val = Map.get(existing, key),
+        existing_val != incoming_val,
+        into: %{},
+        do: {key, %{existing: existing_val, incoming: incoming_val}}
+  end
+
   def dashboard_locked_notice_title(), do: "Dashboard locked"
   def active_grace_period_notice_title(), do: "You have outgrown your Plausible subscription tier"
   def subscription_cancelled_notice_title(), do: "Subscription cancelled"
   def subscription_past_due_notice_title(), do: "Payment failed"
   def subscription_paused_notice_title(), do: "Subscription paused"
-  def upgrade_ineligible_notice_title(), do: "No sites owned"
   def pending_site_ownerships_notice_title(), do: "Pending ownership transfers"
 end

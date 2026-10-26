@@ -6,10 +6,7 @@ const getReport = (page: Page) => page.getByTestId('report-behaviours')
 const getExplorationTabButton = (report: Locator) =>
   tabButton(report, 'Explore')
 
-test('load featured funnel with only a single step', async ({
-  page,
-  request
-}) => {
+test('load user journey', async ({ page, request }) => {
   const report = getReport(page)
   const explorationTabButton = getExplorationTabButton(report)
   const { domain } = await setupSite({ page, request })
@@ -22,15 +19,15 @@ test('load featured funnel with only a single step', async ({
         user_id: 123,
         name: 'pageview',
         pathname: '/page',
-        timestamp: { hoursAgo: 40 }
+        timestamp: { daysAgo: 7 }
       }
     ]
   })
 
   await page.goto('/' + domain, { waitUntil: 'commit' })
 
-  await explorationTabButton.scrollIntoViewIfNeeded()
   await explorationTabButton.click()
+  await report.getByTestId('report-end').scrollIntoViewIfNeeded()
 
   await expect(report.getByTestId('exploration-title')).toHaveText(
     'Explore user journeys'
@@ -54,11 +51,18 @@ test('load featured funnel with only a single step', async ({
   ).toHaveText(['1'])
 
   await expect(secondColumn).toHaveText(/1 step after/)
+  await expect(secondColumn).toHaveText(/Select a starting point to continue/)
+
+  await firstColumn.getByRole('button', { name: '/page' }).click()
+
+  await expect(
+    firstColumn.getByRole('button', { name: '/page' })
+  ).toHaveAttribute('data-exploration-step', '0')
+
   await expect(secondColumn).toHaveText(/No further steps found/)
 })
 
-// current version is often stuck loading if the timing is unlucky
-test('load featured funnel and switch to a period with no events without waiting for load', async ({
+test('load user journey and switch to a period with no events without waiting for load', async ({
   page,
   request
 }) => {
@@ -81,8 +85,8 @@ test('load featured funnel and switch to a period with no events without waiting
 
   await page.goto('/' + domain, { waitUntil: 'commit' })
 
-  await explorationTabButton.scrollIntoViewIfNeeded()
   await explorationTabButton.click()
+  await report.getByTestId('report-end').scrollIntoViewIfNeeded()
 
   await expect(report.getByTestId('exploration-title')).toHaveText(
     'Explore user journeys'
@@ -94,7 +98,7 @@ test('load featured funnel and switch to a period with no events without waiting
   await expect(report).toHaveText(/No data yet/)
 })
 
-test('load featured funnel and switch to a period with no events', async ({
+test('load user journey and switch to a period with no events', async ({
   page,
   request
 }) => {
@@ -110,15 +114,15 @@ test('load featured funnel and switch to a period with no events', async ({
         user_id: 123,
         name: 'pageview',
         pathname: '/page',
-        timestamp: { hoursAgo: 40 }
+        timestamp: { daysAgo: 7 }
       }
     ]
   })
 
   await page.goto('/' + domain, { waitUntil: 'commit' })
 
-  await explorationTabButton.scrollIntoViewIfNeeded()
   await explorationTabButton.click()
+  await report.getByTestId('report-end').scrollIntoViewIfNeeded()
 
   await expect(report.getByTestId('exploration-title')).toHaveText(
     'Explore user journeys'
@@ -138,7 +142,7 @@ test('load featured funnel and switch to a period with no events', async ({
   await expect(report).toHaveText(/No data yet/)
 })
 
-test('load a 3-step featured funnel', async ({ page, request }) => {
+test('explore a 3-step funnel', async ({ page, request }) => {
   const report = getReport(page)
   const explorationTabButton = getExplorationTabButton(report)
   const { domain } = await setupSite({ page, request })
@@ -200,8 +204,8 @@ test('load a 3-step featured funnel', async ({ page, request }) => {
 
   await page.goto('/' + domain, { waitUntil: 'commit' })
 
-  await explorationTabButton.scrollIntoViewIfNeeded()
   await explorationTabButton.click()
+  await report.getByTestId('report-end').scrollIntoViewIfNeeded()
 
   await expect(report.getByTestId('exploration-title')).toHaveText(
     'Explore user journeys'
@@ -214,6 +218,24 @@ test('load a 3-step featured funnel', async ({ page, request }) => {
   const firstColumn = report.getByTestId('exploration-column-0')
   const secondColumn = report.getByTestId('exploration-column-1')
   const thirdColumn = report.getByTestId('exploration-column-2')
+
+  await firstColumn.getByRole('button', { name: '/home' }).click()
+
+  await expect(
+    firstColumn.getByRole('button', { name: '/home' })
+  ).toHaveAttribute('data-exploration-step', '0')
+
+  await secondColumn.getByRole('button', { name: '/login' }).click()
+
+  await expect(
+    secondColumn.getByRole('button', { name: '/login' })
+  ).toHaveAttribute('data-exploration-step', '1')
+
+  await thirdColumn.getByRole('button', { name: '/dashboard' }).click()
+
+  await expect(
+    thirdColumn.getByRole('button', { name: '/dashboard' })
+  ).toHaveAttribute('data-exploration-step', '2')
 
   await expect(firstColumn).toBeVisible()
   await expect(secondColumn).toBeVisible()
@@ -249,7 +271,7 @@ test('load a 3-step featured funnel', async ({ page, request }) => {
 
   await expect(
     thirdColumn.getByRole('button', { name: '/dashboard' })
-  ).not.toHaveAttribute('data-exploration-step')
+  ).toHaveAttribute('data-exploration-step', '2')
 
   await expect(
     thirdColumn.getByTestId('exploration-row').getByTestId('metric-value')
@@ -336,8 +358,8 @@ test('select entries in a 1-step journey', async ({ page, request }) => {
 
   await page.goto('/' + domain, { waitUntil: 'commit' })
 
-  await explorationTabButton.scrollIntoViewIfNeeded()
   await explorationTabButton.click()
+  await report.getByTestId('report-end').scrollIntoViewIfNeeded()
 
   await expect(report.getByTestId('exploration-title')).toHaveText(
     'Explore user journeys'
@@ -346,8 +368,6 @@ test('select entries in a 1-step journey', async ({ page, request }) => {
   await expect(
     report.getByTestId('exploration-direction-forward')
   ).toBeVisible()
-
-  await report.getByTestId('exploration-deselect-all').click()
 
   const firstColumn = report.getByTestId('exploration-column-0')
   const secondColumn = report.getByTestId('exploration-column-1')
@@ -579,8 +599,8 @@ test('select entries in a 3-step journey', async ({ page, request }) => {
 
   await page.goto('/' + domain, { waitUntil: 'commit' })
 
-  await explorationTabButton.scrollIntoViewIfNeeded()
   await explorationTabButton.click()
+  await report.getByTestId('report-end').scrollIntoViewIfNeeded()
 
   await expect(report.getByTestId('exploration-title')).toHaveText(
     'Explore user journeys'
@@ -589,8 +609,6 @@ test('select entries in a 3-step journey', async ({ page, request }) => {
   await expect(
     report.getByTestId('exploration-direction-forward')
   ).toBeVisible()
-
-  await report.getByTestId('exploration-deselect-all').click()
 
   const firstColumn = report.getByTestId('exploration-column-0')
   const secondColumn = report.getByTestId('exploration-column-1')
@@ -727,8 +745,8 @@ test('explore journey hitting 20 step limit', async ({ page, request }) => {
 
   await page.goto('/' + domain, { waitUntil: 'commit' })
 
-  await explorationTabButton.scrollIntoViewIfNeeded()
   await explorationTabButton.click()
+  await report.getByTestId('report-end').scrollIntoViewIfNeeded()
 
   await expect(report.getByTestId('exploration-title')).toHaveText(
     'Explore user journeys'
@@ -737,8 +755,6 @@ test('explore journey hitting 20 step limit', async ({ page, request }) => {
   await expect(
     report.getByTestId('exploration-direction-forward')
   ).toBeVisible()
-
-  await report.getByTestId('exploration-deselect-all').click()
 
   const firstColumn = report.getByTestId('exploration-column-0')
   const lastColumn = report.getByTestId('exploration-column-20')
@@ -890,8 +906,8 @@ test('explore from end point', async ({ page, request }) => {
 
   await page.goto('/' + domain, { waitUntil: 'commit' })
 
-  await explorationTabButton.scrollIntoViewIfNeeded()
   await explorationTabButton.click()
+  await report.getByTestId('report-end').scrollIntoViewIfNeeded()
 
   await expect(report.getByTestId('exploration-title')).toHaveText(
     'Explore user journeys'
@@ -1054,8 +1070,8 @@ test('change filters during a 3-step journey', async ({ page, request }) => {
 
   await page.goto('/' + domain, { waitUntil: 'commit' })
 
-  await explorationTabButton.scrollIntoViewIfNeeded()
   await explorationTabButton.click()
+  await report.getByTestId('report-end').scrollIntoViewIfNeeded()
 
   await expect(report.getByTestId('exploration-title')).toHaveText(
     'Explore user journeys'
@@ -1069,6 +1085,18 @@ test('change filters during a 3-step journey', async ({ page, request }) => {
   const secondColumn = report.getByTestId('exploration-column-1')
   const thirdColumn = report.getByTestId('exploration-column-2')
   const fourthColumn = report.getByTestId('exploration-column-3')
+
+  await firstColumn.getByRole('button', { name: '/home' }).click()
+
+  await expect(
+    firstColumn.getByRole('button', { name: '/home' })
+  ).toHaveAttribute('data-exploration-step', '0')
+
+  await secondColumn.getByRole('button', { name: '/login' }).click()
+
+  await expect(
+    secondColumn.getByRole('button', { name: '/login' })
+  ).toHaveAttribute('data-exploration-step', '1')
 
   await thirdColumn.getByRole('button', { name: '/dashboard' }).click()
 
@@ -1115,7 +1143,7 @@ test('change filters during a 3-step journey', async ({ page, request }) => {
 
     await expect(
       firstColumn.getByTestId('exploration-row').getByTestId('metric-value')
-    ).toHaveText(['2'])
+    ).toHaveText(['1'])
 
     await expect(
       secondColumn.getByTestId('exploration-row').getByTestId('metric-label')
@@ -1123,7 +1151,7 @@ test('change filters during a 3-step journey', async ({ page, request }) => {
 
     await expect(
       secondColumn.getByTestId('exploration-row').getByTestId('metric-value')
-    ).toHaveText(['2'])
+    ).toHaveText(['1'])
 
     await expect(
       thirdColumn.getByTestId('exploration-row').getByTestId('metric-label')
@@ -1323,8 +1351,8 @@ test('render various types of entries', async ({ page, request }) => {
 
   await page.goto('/' + domain, { waitUntil: 'commit' })
 
-  await explorationTabButton.scrollIntoViewIfNeeded()
   await explorationTabButton.click()
+  await report.getByTestId('report-end').scrollIntoViewIfNeeded()
 
   await expect(report.getByTestId('exploration-title')).toHaveText(
     'Explore user journeys'
@@ -1358,4 +1386,130 @@ test('render various types of entries', async ({ page, request }) => {
 
   await firstColumn.getByTestId('exploration-row').nth(6).locator('svg').hover()
   await expect(page.getByRole('tooltip')).toHaveText(/Goal/)
+})
+
+test('load more suggestions', async ({ page, request }) => {
+  const report = getReport(page)
+  const explorationTabButton = getExplorationTabButton(report)
+  const { domain } = await setupSite({ page, request })
+
+  const events1 = [...Array(25).keys()].map((i) => {
+    return {
+      name: 'pageview',
+      pathname: `/pageone${String(i).padStart(2, '0')}`
+    }
+  })
+
+  const events2 = [...Array(25).keys()].map((i) => {
+    return {
+      name: 'pageview',
+      pathname: `/pagetwo${String(i).padStart(2, '0')}`
+    }
+  })
+
+  await populateStats({
+    request,
+    domain,
+    events: events1.concat(events2)
+  })
+
+  await page.goto('/' + domain, { waitUntil: 'commit' })
+
+  await explorationTabButton.click()
+  await report.getByTestId('report-end').scrollIntoViewIfNeeded()
+
+  await expect(report.getByTestId('exploration-title')).toHaveText(
+    'Explore user journeys'
+  )
+
+  await expect(
+    report.getByTestId('exploration-direction-forward')
+  ).toBeVisible()
+
+  const firstColumn = report.getByTestId('exploration-column-0')
+
+  const columnRow = (i: number) =>
+    firstColumn.getByTestId('exploration-row').nth(i)
+
+  const firstPage = [
+    '/pageone00',
+    '/pageone01',
+    '/pageone02',
+    '/pageone03',
+    '/pageone04',
+    '/pageone05',
+    '/pageone06',
+    '/pageone07',
+    '/pageone08',
+    '/pageone09'
+  ]
+
+  const secondPage = [
+    '/pageone10',
+    '/pageone11',
+    '/pageone12',
+    '/pageone13',
+    '/pageone14',
+    '/pageone15',
+    '/pageone16',
+    '/pageone17',
+    '/pageone18',
+    '/pageone19'
+  ]
+
+  await expect(
+    firstColumn.getByTestId('exploration-row').getByTestId('metric-label')
+  ).toHaveText(firstPage)
+
+  await expect(columnRow(10)).toHaveText(/Show 10 more/)
+  await columnRow(10).click()
+
+  await expect(
+    firstColumn.getByTestId('exploration-row').getByTestId('metric-label')
+  ).toHaveText(firstPage.concat(secondPage))
+
+  await expect(columnRow(20)).toHaveText(/Show 10 more/)
+
+  await test.step('reset state when suggestions change', async () => {
+    await firstColumn.getByPlaceholder('Search').fill('pagetwo')
+
+    const newFirstPage = [
+      '/pagetwo00',
+      '/pagetwo01',
+      '/pagetwo02',
+      '/pagetwo03',
+      '/pagetwo04',
+      '/pagetwo05',
+      '/pagetwo06',
+      '/pagetwo07',
+      '/pagetwo08',
+      '/pagetwo09'
+    ]
+
+    const newSecondPage = [
+      '/pagetwo10',
+      '/pagetwo11',
+      '/pagetwo12',
+      '/pagetwo13',
+      '/pagetwo14',
+      '/pagetwo15',
+      '/pagetwo16',
+      '/pagetwo17',
+      '/pagetwo18',
+      '/pagetwo19'
+    ]
+
+    await expect(
+      firstColumn.getByTestId('exploration-row').getByTestId('metric-label')
+    ).toHaveText(newFirstPage)
+
+    await expect(columnRow(10)).toHaveText(/Show 10 more/)
+    await columnRow(10).click()
+
+    await expect(
+      firstColumn.getByTestId('exploration-row').getByTestId('metric-label')
+    ).toHaveText(newFirstPage.concat(newSecondPage))
+
+    await expect(columnRow(20)).toHaveText(/Show 5 more/)
+  })
 })

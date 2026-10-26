@@ -217,7 +217,7 @@ defmodule PlausibleWeb.Api.StatsController.ExplorationTest do
           })
           |> json_response(400)
 
-        assert resp["error"] == "We are unable to show funnels when journey is empty"
+        assert resp["error"] == "Funnels aren't available when journey is empty"
       end
 
       test "supports backward direction", %{conn: conn, site: site} do
@@ -480,21 +480,6 @@ defmodule PlausibleWeb.Api.StatsController.ExplorationTest do
           conn
           |> post("/api/stats/#{site.domain}/exploration/funnel/", %{
             "journey" => journey,
-            "period" => "all"
-          })
-
-        assert json_response(resp, 429) == %{"error" => "Too many exploration requests"}
-      end
-
-      test "returns 429 for exploration_featured_funnel when rate limit exceeded", %{
-        conn: conn,
-        site: site
-      } do
-        exhaust_exploration_rate_limit(site)
-
-        resp =
-          conn
-          |> post("/api/stats/#{site.domain}/exploration/featured-funnel/", %{
             "period" => "all"
           })
 
